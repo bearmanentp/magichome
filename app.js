@@ -1,10 +1,10 @@
 /* ======================================================================
-   MagicHome - app.js (완벽 수정 버전)
+   MagicHome - app.js (메모 핀 영구 보존 및 고난도 Three.js 리액션 버전)
    ====================================================================== */
 
-const SYSTEM_KEY = "magichome_v3_state";
+const SYSTEM_KEY = "magichome_v4_state";
 
-// ── 검색 엔진 ──────────────────────────────────────
+// ── 검색 엔진 주소 구축 ──────────────────────────────────────
 const ENGINES = {
   google:  { label: "🔍 Google",  q: q => `https://www.google.com/search?q=${enc(q)}` },
   naver:   { label: "🟢 Naver",   q: q => `https://search.naver.com/search.naver?query=${enc(q)}` },
@@ -14,11 +14,10 @@ const ENGINES = {
 };
 const enc = encodeURIComponent;
 
-// ── 기본 제공 매직이모지 favicon 데이터 URL ──────────
 const MAGIC_SVG_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="82">🪄</text></svg>`;
 const MAGIC_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(MAGIC_SVG_FAVICON)}`;
 
-// ── 셀렉터 유틸리티 ─────────────────────────────────
+// ── DOM 캐치 유틸 ─────────────────────────────────
 const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
@@ -27,7 +26,7 @@ function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// ── 메모리 상태 관리 ────────────────────────────────
+// ── 메모리 상태 변수군 ────────────────────────────────
 let state = loadState();
 let threeCtx = null;
 let dragInfo = null;
@@ -38,6 +37,7 @@ let pointerX = null, pointerY = null;
 let toastTimer = null;
 let clockInterval = null;
 
+// ── 디폴트 데이터 주입 ───────────────────────────────
 function buildDefaultItems() {
   return [
     appItem("Google", "https://www.google.com", false),
@@ -69,12 +69,13 @@ function buildDefaultState() {
       showWeather: false,
       showIntro: true,
       welcomeMsg: "반가워요. 오늘도 매직하게 시작해볼까요?",
-      // 탭 아이콘 (Favicon) 커스텀 데이터
-      faviconType: "emoji", // "emoji", "link", "upload"
+      autoPinNotes: false, // 메모 생성 시 핀 자동 비활성화(디폴트)
+      // 탭 데코레이션
+      faviconType: "emoji",
       faviconData: "",
-      // 고도화된 배경 옵션들
-      bgType: "three", // "three", "solid", "gradient", "image", "emoji"
-      threeSceneType: "stars", // "stars", "matrix", "waves"
+      // 테마 배경 데이터
+      bgType: "three",
+      threeSceneType: "stars",
       threeMouseFx: true,
       bgSolidColor: "#121016",
       bgGrad1: "#1f1a3a",
@@ -85,7 +86,7 @@ function buildDefaultState() {
       bgEmojis: "✨🎈🪄🍀🌸🔥",
     },
     items: buildDefaultItems(),
-    notes: [],
+    notes: [], // 핀 고정 처리된 메모는 캐시를 통해 이곳에 로드됨
     carouselIdx: 0,
     gridPage: 0,
     weatherCache: null,
@@ -124,30 +125,36 @@ function normalizeDataItems(arr) {
   });
 }
 
+// ── 캐시 라이트 (요청에 부합하도록 오직 Pinned 메모만 선별 저장) ──
 function saveState() {
   try {
-    localStorage.setItem(SYSTEM_KEY, JSON.stringify(state));
+    // 핀이 꽂혀있는 메모만 로컬 스토리지에 포함시킴
+    const savedNotes = state.notes.filter(n => n.pinned === true);
+    const dumpData = {
+      ...state,
+      notes: savedNotes
+    };
+    localStorage.setItem(SYSTEM_KEY, JSON.stringify(dumpData));
   } catch {
-    toast("브라우저 로컬 스토리지 한도를 초과하여 이미지 데이터 최적화가 필요합니다.");
+    toast("로컬 스토리지 한계 도달 - 미디어 파일 최적화가 요구됩니다.");
   }
 }
 
 // ═══════════════════════════════════════════════════
-//  코어 초기화 시스템 (DOM 완벽 구성 보장)
+//  시스템 시동
 // ═══════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", () => {
   setEngineLists();
   bindMainEvents();
   syncAllStateToUI();
   renderAllComponents();
-  initThreeBackground(); // Three.js 오류 시 스킵되도록 안전화 처리됨
+  initThreeBackground(); // 고성능 물리입자 시각 피드백 로드
   startSystemClock();
   applyBackgroundTheme();
   applyFaviconTheme();
   handleIntroView();
 });
 
-// ── 인트로 부팅 제어 ───────────────────────────────
 function handleIntroView() {
   if (!state.settings.showIntro) {
     $("#intro").classList.add("hide");
@@ -171,14 +178,12 @@ function focusSearchBox() {
   }, 350);
 }
 
-// ── 검색엔진 셀렉트 리스트 주입 ─────────────────────────
 function setEngineLists() {
   const h = Object.entries(ENGINES).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join("");
   $("#engineSelect").innerHTML = h;
   $("#settingsEngineSelect").innerHTML = h;
 }
 
-// ── 세그먼트 커스텀 탭 버튼 바인딩 ─────────────────────
 function bindSegmentCtrl(groupId, hiddenId, onChg) {
   const el = $(`#${groupId}`);
   if (!el) return;
@@ -200,25 +205,22 @@ function setSegmentActive(groupId, hiddenId, val) {
 }
 
 // ═══════════════════════════════════════════════════
-//  이벤트 전체 바인딩 (안전 장치 추가)
+//  이벤트 라우터 바인더
 // ═══════════════════════════════════════════════════
 function bindMainEvents() {
   $("#introSkipBtn").addEventListener("click", triggerIntroHide);
 
-  // 상단바 제어판 트리거
   $("#settingsBtn").addEventListener("click", () => openOverlayPanel($("#settingsPanel")));
   $("#addAppBtn").addEventListener("click", () => openAppInputModal());
   $("#addNoteBtn").addEventListener("click", makeNewStickyNote);
   $("#openAllBtn").addEventListener("click", handleBatchLaunch);
 
-  // 모달 영역 바깥 클릭 해제
   $("#modalBackdrop").addEventListener("click", closeAllOverlays);
 
   document.addEventListener("keydown", e => {
     if (e.key === "Escape") closeAllOverlays();
   });
 
-  // 버튼 속성 기준 일괄 닫기 이벤트 리스너
   document.addEventListener("click", e => {
     if (e.target.closest("[data-close]")) {
       const parent = e.target.closest(".panel, .modal");
@@ -229,17 +231,14 @@ function bindMainEvents() {
     }
   });
 
-  // 검색엔진 상호 연동 연쇄 작용
   $("#engineSelect").addEventListener("change", e => syncSearchEngine(e.target.value));
   $("#settingsEngineSelect").addEventListener("change", e => syncSearchEngine(e.target.value));
 
-  // 검색 연산
   $("#searchBtn").addEventListener("click", execQuerySearch);
   $("#searchInput").addEventListener("keydown", e => {
     if (e.key === "Enter") execQuerySearch();
   });
 
-  // 옵션 실시간 저장 바인딩 세트
   const bindSave = (sel, key, trans = v => v) => {
     $(sel).addEventListener("change", e => {
       state.settings[key] = trans(e.target.type === "checkbox" ? e.target.checked : e.target.value);
@@ -252,11 +251,11 @@ function bindMainEvents() {
   bindSave("#showIntroToggle", "showIntro");
   bindSave("#showClockToggle", "showClock", v => { triggerWidgetSync(); return v; });
   bindSave("#showWeatherToggle", "showWeather", v => { triggerWidgetSync(); if(v) fetchRealtimeWeather(true); return v; });
+  bindSave("#autoPinToggle", "autoPinNotes");
   bindSave("#bgTypeSelect", "bgType", v => { applyBackgroundTheme(); toggleSubBgFields(v); return v; });
   bindSave("#threeSceneSelect", "threeSceneType", v => { resetThreeScene(); return v; });
   bindSave("#threeMouseToggle", "threeMouseFx");
 
-  // 배경 이미지 업로드 변환
   $("#bgImageUpload").addEventListener("change", async e => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -267,14 +266,13 @@ function bindMainEvents() {
       saveState();
       syncAllStateToUI();
       applyBackgroundTheme();
-      toast("배경 이미지 업로드 및 최적화가 완료되었습니다.");
+      toast("배경이 업로드된 이미지로 반영되었습니다.");
     } catch {
-      toast("해당 파일을 이미지 포맷으로 처리할 수 없습니다.");
+      toast("이미지 변환 실패");
     }
     e.target.value = "";
   });
 
-  // 탭 아이콘 (Favicon) 세그먼트 및 업로드 바인딩
   bindSegmentCtrl("favModeSeg", "favModeVal", val => {
     $("#favLinkField").style.display = val === "link" ? "" : "none";
     $("#favUploadField").style.display = val === "upload" ? "" : "none";
@@ -300,10 +298,9 @@ function bindMainEvents() {
     }
     saveState();
     applyFaviconTheme();
-    toast("브라우저 탭 아이콘 변경이 반영되었습니다.");
+    toast("브라우저 탭 아이콘 변경이 완료되었습니다.");
   });
 
-  // 통합 수정사항 영구 반영 버튼
   $("#applyBgBtn").addEventListener("click", () => {
     state.settings.bgSolidColor = $("#bgSolidColor").value;
     state.settings.bgGrad1 = $("#bgGrad1").value;
@@ -322,35 +319,28 @@ function bindMainEvents() {
     saveState();
     syncAllStateToUI();
     applyBackgroundTheme();
-    toast("테마 환경 설정이 업데이트되었습니다.");
+    toast("배경 환경설정이 변경되었습니다.");
   });
 
-  // 리셋 버튼
   $("#resetDataBtn").addEventListener("click", () => {
-    if (!confirm("모든 앱 레이아웃 배치 데이터와 메모리가 완전히 초기화됩니다. 계속 진행할까요?")) return;
+    if (!confirm("모든 앱 배치와 메모가 초기화됩니다. 계속 진행할까요?")) return;
     localStorage.removeItem(SYSTEM_KEY);
     window.location.reload();
   });
 
-  // 날씨 새로고침 트리거
-  $("#weatherBox").addEventListener("click", () => fetchRealtimeWeather(true));
-
-  // 앱 생성/수정 라벨 제어 세그먼트 버튼 연동
   bindSegmentCtrl("entryTypeSeg", "entryType", onEntryFormToggle);
   bindSegmentCtrl("iconModeSeg", "iconModeVal", onIconFormToggle);
 
-  // 아이콘 이미지 파일명 변경 캐치
   $("#appIconUpload").addEventListener("change", e => {
     $("#iconFileName").textContent = e.target.files?.[0]?.name || "선택된 파일 없음";
   });
 
   $("#appForm").addEventListener("submit", handleAppFormSave);
 
-  // 안드로이드 폴더 기능 제어
   $("#folderOpenAllBtn").addEventListener("click", () => triggerFolderLaunchAll(folderOpenId));
   $("#folderAddAppBtn").addEventListener("click", () => openAppInputModal(null, folderOpenId));
 
-  // 마우스 커브 다이얼 위치 센서 기록
+  // 마우스 이동 감지
   $("#curveViewport").addEventListener("mousemove", e => {
     const rect = $("#curveViewport").getBoundingClientRect();
     pointerX = e.clientX - rect.left;
@@ -364,25 +354,20 @@ function bindMainEvents() {
     triggerDialReposition();
   });
 
-  // 터치 스와이프 리스너 배치
   bindSwipeDetection($("#curveViewport"), dir => rotateCurveDial(dir === "left" ? 1 : -1), true);
   bindSwipeDetection($("#gridViewport"), dir => changeGridPage(dir === "left" ? 1 : -1));
 
-  // 물리 휠 이동 제어
   $("#curveViewport").addEventListener("wheel", e => {
     e.preventDefault();
     rotateCurveDial(e.deltaY > 0 ? 1 : -1);
   }, { passive: false });
 
-  // 좌우 회전 버튼 지연 홀딩 루프
   bindHoldWheel($("#curveLeft"), -1);
   bindHoldWheel($("#curveRight"), 1);
 
-  // 그리드 좌우 화살표 제어
   $("#gridLeft").addEventListener("click", () => changeGridPage(-1));
   $("#gridRight").addEventListener("click", () => changeGridPage(1));
 
-  // 윈도우 스펙 변경 리사이즈 반응형 설계
   let resizeTimer;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -402,7 +387,6 @@ function syncSearchEngine(val) {
   $("#settingsEngineSelect").value = val;
 }
 
-// ── 세그먼트 전용 토글 라벨 변경 ──────────────────────
 function onEntryFormToggle(val) {
   const isApp = val === "app";
   $("#appOnlyFields").classList.toggle("hidden", !isApp);
@@ -424,7 +408,7 @@ function toggleSubBgFields(type) {
 }
 
 // ═══════════════════════════════════════════════════
-//  배경 테마 제어 엔진 (단색/그라데이션/이모지/Three.js)
+//  배경 테마 제어 엔진
 // ═══════════════════════════════════════════════════
 function applyBackgroundTheme() {
   const s = state.settings;
@@ -432,7 +416,6 @@ function applyBackgroundTheme() {
   const img = $("#bgImageLayer");
   const three = $("#threeBg");
 
-  // 레이어 전체 디폴트 가림
   solid.style.background = "none";
   img.style.backgroundImage = "none";
   img.style.opacity = "0";
@@ -448,14 +431,13 @@ function applyBackgroundTheme() {
     img.style.backgroundSize = s.bgFit === "contain" ? "contain" : s.bgFit === "stretch" ? "100% 100%" : "cover";
     img.style.opacity = "1";
   } else if (s.bgType === "emoji") {
-    solid.style.background = "#141218";
+    solid.style.background = "#0c0a10";
     initEmojiBackground();
   } else if (s.bgType === "three") {
     three.style.opacity = "1";
   }
 }
 
-// ── 날아다니는 이모지 생성 및 수거 ───────────────────
 function initEmojiBackground() {
   destroyEmojiBackground();
   const container = $("#bgEmojiLayer");
@@ -478,7 +460,6 @@ function destroyEmojiBackground() {
   $("#bgEmojiLayer").innerHTML = "";
 }
 
-// ── 브라우저 상단 탭 아이콘 (Favicon) 동적 적용 ───────
 function applyFaviconTheme() {
   const f = state.settings.faviconData || MAGIC_ICON;
   const link = $("#favicon");
@@ -488,7 +469,7 @@ function applyFaviconTheme() {
 }
 
 // ═══════════════════════════════════════════════════
-//  UI 바인딩 및 렌더링 동기화
+//  UI 상태 연동 및 리스너 분기
 // ═══════════════════════════════════════════════════
 function syncAllStateToUI() {
   const s = state.settings;
@@ -499,6 +480,7 @@ function syncAllStateToUI() {
   $("#showIntroToggle").checked = !!s.showIntro;
   $("#showClockToggle").checked = !!s.showClock;
   $("#showWeatherToggle").checked = !!s.showWeather;
+  $("#autoPinToggle").checked = !!s.autoPinNotes;
   $("#bgTypeSelect").value = s.bgType;
   $("#threeSceneSelect").value = s.threeSceneType;
   $("#threeMouseToggle").checked = !!s.threeMouseFx;
@@ -539,23 +521,20 @@ function renderAllComponents() {
 }
 
 // ═══════════════════════════════════════════════════
-//  Three.js 코어 3D 공간 연산 (안전장치 추가)
+//  💎 초고난도 Three.js 비주얼 수식 연산 제어 💎
 // ═══════════════════════════════════════════════════
 function initThreeBackground() {
-  if (typeof THREE === "undefined") {
-    console.warn("Three.js 라이브러리를 로드하지 못했습니다.");
-    return;
-  }
+  if (typeof THREE === "undefined") return;
   const canvas = $("#threeBg");
   const W = window.innerWidth, H = window.innerHeight;
 
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "high-performance" });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(W, H);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(55, W / H, 1, 1000);
-  camera.position.z = 110;
+  const camera = new THREE.PerspectiveCamera(60, W / H, 1, 1000);
+  camera.position.z = 100;
 
   threeCtx = { renderer, scene, camera, meshObj: null, sceneType: "" };
 
@@ -564,24 +543,99 @@ function initThreeBackground() {
   let targetX = 0, targetY = 0;
   let mouseX = 0, mouseY = 0;
 
+  // 정밀 광원 및 카메라 타겟 센싱 구축
   document.addEventListener("mousemove", e => {
     mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
     mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
   });
 
+  let clock = new THREE.Clock();
+
   (function animationTick() {
     requestAnimationFrame(animationTick);
     if (!threeCtx || !threeCtx.meshObj) return;
 
-    // 회전값 부여
-    threeCtx.meshObj.rotation.y += 0.0007;
-    threeCtx.meshObj.rotation.x += 0.0002;
+    const delta = clock.getDelta();
+    const time = clock.getElapsedTime();
 
+    // ── 비주얼 모드별 고난도 기하 연산 루프 ──
+    if (threeCtx.sceneType === "stars") {
+      // 🌌 성운 소용돌이 기하 루프
+      threeCtx.meshObj.rotation.z += 0.05 * delta;
+      
+      const positions = threeCtx.meshObj.geometry.attributes.position.array;
+      const count = positions.length / 3;
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        // 마우스 중력 영향도 계산
+        if (state.settings.threeMouseFx) {
+          const dx = positions[i3] - mouseX * 80;
+          const dy = positions[i3 + 1] - (-mouseY * 50);
+          const dist = Math.hypot(dx, dy);
+          if (dist < 40) {
+            positions[i3] += (dx / dist) * delta * 12;
+            positions[i3 + 1] += (dy / dist) * delta * 12;
+          }
+        }
+      }
+      threeCtx.meshObj.geometry.attributes.position.needsUpdate = true;
+
+    } else if (threeCtx.sceneType === "matrix") {
+      // 🧬 매트릭스 큐브 레인 기하 파장 루프
+      const children = threeCtx.meshObj.children;
+      children.forEach((mesh, index) => {
+        mesh.position.y -= (0.15 + (index % 5) * 0.05);
+        mesh.rotation.y += 0.01;
+        if (mesh.position.y < -120) {
+          mesh.position.y = 120;
+          mesh.position.x = (Math.random() - 0.5) * 260;
+        }
+        // 마우스 호버 왜곡 작용
+        if (state.settings.threeMouseFx) {
+          const dx = mesh.position.x - mouseX * 100;
+          const dy = mesh.position.y - (-mouseY * 80);
+          const dist = Math.hypot(dx, dy);
+          if (dist < 50) {
+            mesh.scale.setScalar(2.2 - dist / 50);
+          } else {
+            mesh.scale.setScalar(1.0);
+          }
+        }
+      });
+
+    } else if (threeCtx.sceneType === "waves") {
+      // 🌊 마우스 압력 분산 디지털 지형 서핑 루프
+      const positions = threeCtx.meshObj.geometry.attributes.position.array;
+      const count = positions.length / 3;
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const x = positions[i3];
+        const z = positions[i3 + 2];
+        
+        // 삼각 정밀 합성 웨이브 수식
+        let y = Math.sin(x * 0.08 + time * 1.5) * Math.cos(z * 0.08 + time * 1.5) * 6;
+        y += Math.sin(x * 0.2 + time * 3.0) * 1.2; // 디테일 고주파 파도
+
+        // 마우스 포인트 중심 하강 압력파 계산
+        if (state.settings.threeMouseFx) {
+          const mx = mouseX * 130;
+          const mz = -mouseY * 100;
+          const dist = Math.hypot(x - mx, z - mz);
+          if (dist < 45) {
+            y -= (45 - dist) * 0.45; // 밀려 내려가는 왜곡 형성
+          }
+        }
+        positions[i3 + 1] = y;
+      }
+      threeCtx.meshObj.geometry.attributes.position.needsUpdate = true;
+    }
+
+    // 마우스 타겟 렌더러 반응 관성 작용
     if (state.settings.threeMouseFx) {
       targetX += (mouseX - targetX) * 0.04;
       targetY += (mouseY - targetY) * 0.04;
-      camera.position.x += (targetX * 12 - camera.position.x) * 0.05;
-      camera.position.y += (-targetY * 10 - camera.position.y) * 0.05;
+      camera.position.x += (targetX * 15 - camera.position.x) * 0.05;
+      camera.position.y += (-targetY * 12 - camera.position.y) * 0.05;
     } else {
       camera.position.x += (0 - camera.position.x) * 0.04;
       camera.position.y += (0 - camera.position.y) * 0.04;
@@ -598,47 +652,116 @@ function resetThreeScene() {
 
   if (sceneType === type && threeCtx.meshObj) return;
 
-  // 기존 구조 소각
   if (threeCtx.meshObj) scene.remove(threeCtx.meshObj);
 
-  const group = new THREE.Group();
-
+  // 대분류 분기
   if (type === "stars") {
-    const starCount = 800;
+    // 🌌 성운 수식 빌드
+    const starCount = 1400;
     const geom = new THREE.BufferGeometry();
     const pos = new Float32Array(starCount * 3);
+    const colors = new Float32Array(starCount * 3);
+
+    const c1 = new THREE.Color("#d0bcff"); // 퍼플
+    const c2 = new THREE.Color("#4f378b"); // 인디고
+    const c3 = new THREE.Color("#0c0a10"); // 다크
+
     for (let i = 0; i < starCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 280;
-      pos[i * 3 + 1] = (Math.random() - 0.5) * 160;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 180;
+      // 나선 은하 수학 모델 공식 적용
+      const r = Math.pow(Math.random(), 2.5) * 160;
+      const spin = r * 0.05;
+      const angle = (i % 3) * ((2 * Math.PI) / 3) + spin;
+
+      pos[i * 3] = Math.cos(angle) * r + (Math.random() - 0.5) * 12;
+      pos[i * 3 + 1] = Math.sin(angle) * r + (Math.random() - 0.5) * 12;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 40;
+
+      // 은하 중심부에 수렴할수록 밝은 퍼플, 변두리는 다크 인디고 처리
+      const mixedColor = c1.clone().lerp(c2, r / 160);
+      colors[i * 3] = mixedColor.r;
+      colors[i * 3 + 1] = mixedColor.g;
+      colors[i * 3 + 2] = mixedColor.b;
     }
+
     geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    const mat = new THREE.PointsMaterial({ color: 0xd0bcff, size: 1.6, transparent: true, opacity: 0.8 });
-    group.add(new THREE.Points(geom, mat));
+    geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    const mat = new THREE.PointsMaterial({
+      size: 1.8,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending
+    });
+    
+    threeCtx.meshObj = new THREE.Points(geom, mat);
+
   } else if (type === "matrix") {
-    // 매트릭스 스타일의 세로 구조 큐브형 기둥들
-    const rainCount = 400;
-    const geom = new THREE.BufferGeometry();
-    const pos = new Float32Array(rainCount * 3);
-    for (let i = 0; i < rainCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 240;
-      pos[i * 3 + 1] = (Math.random() - 0.5) * 260; // 세로로 길게
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 150;
+    // 🧬 사이버 와이어 구조체 그리드
+    const parentGroup = new THREE.Group();
+    const gridCount = 90;
+    
+    for (let i = 0; i < gridCount; i++) {
+      const geometry = new THREE.BoxGeometry(2, 2, 2);
+      const wireframe = new THREE.WireframeGeometry(geometry);
+      const line = new THREE.LineSegments(wireframe);
+      
+      line.position.x = (Math.random() - 0.5) * 260;
+      line.position.y = (Math.random() - 0.5) * 220;
+      line.position.z = (Math.random() - 0.5) * 160;
+      line.material.color.setHex(0x4ddb9e);
+      line.material.transparent = true;
+      line.material.opacity = 0.45;
+      parentGroup.add(line);
     }
+    threeCtx.meshObj = parentGroup;
+
+  } else if (type === "waves") {
+    // 🌊 디지털 3D 터레인 파도 생성
+    const gridX = 75, gridZ = 75;
+    const geom = new THREE.BufferGeometry();
+    const count = gridX * gridZ;
+    const pos = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+
+    const c1 = new THREE.Color("#4f378b");
+    const c2 = new THREE.Color("#d0bcff");
+
+    let idx = 0;
+    for (let x = 0; x < gridX; x++) {
+      for (let z = 0; z < gridZ; z++) {
+        // 정렬 정점 계산
+        const px = (x - gridX / 2) * 4.2;
+        const pz = (z - gridZ / 2) * 4.2;
+
+        pos[idx * 3] = px;
+        pos[idx * 3 + 1] = 0; // 프레임 루프에서 연산
+        pos[idx * 3 + 2] = pz;
+
+        // 투톤 파동 그래디언트
+        const mixed = c1.clone().lerp(c2, x / gridX);
+        colors[idx * 3] = mixed.r;
+        colors[idx * 3 + 1] = mixed.g;
+        colors[idx * 3 + 2] = mixed.b;
+
+        idx++;
+      }
+    }
+
     geom.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    const mat = new THREE.PointsMaterial({ color: 0x4ddb9e, size: 2.0, transparent: true, opacity: 0.65 });
-    group.add(new THREE.Points(geom, mat));
-  } else {
-    // 링구조 겹치기 파도 효과
-    const ringGeom = new THREE.TorusGeometry(32, 0.3, 8, 80);
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0xd0bcff, transparent: true, opacity: 0.15, wireframe: true });
-    const ringMesh = new THREE.Mesh(ringGeom, ringMat);
-    ringMesh.rotation.x = 1.2;
-    group.add(ringMesh);
+    geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    const mat = new THREE.PointsMaterial({
+      size: 1.6,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.8
+    });
+
+    threeCtx.meshObj = new THREE.Points(geom, mat);
   }
 
-  scene.add(group);
-  threeCtx.meshObj = group;
+  scene.add(threeCtx.meshObj);
   threeCtx.sceneType = type;
 }
 
@@ -651,7 +774,7 @@ function resizeThreeCanvas() {
 }
 
 // ═══════════════════════════════════════════════════
-//  [A] 가로 직선 나열 & 끝자락 곡선 다운 다이얼 시스템
+//  [A] 커브 다이얼 레이아웃 재배치
 // ═══════════════════════════════════════════════════
 function renderCurveLayout() {
   const track = $("#curveTrack");
@@ -663,7 +786,7 @@ function renderCurveLayout() {
     el.style.position = "absolute";
     el.style.left = "50%"; el.style.top = "42%";
     el.style.transform = "translate(-50%, -50%)";
-    el.textContent = "가운데 위 + 버튼을 클릭해 사이트를 추가해 보세요.";
+    el.textContent = "상단 앱 버튼을 눌러 새 사이트를 주입해 보세요.";
     track.appendChild(el);
     return;
   }
@@ -694,21 +817,20 @@ function triggerDialReposition() {
   const W = vp.clientWidth;
   const H = vp.clientHeight;
   const centerX = W / 2;
-  const baseY = Math.min(116, H * 0.35); // 중앙 배치 Y
-  const spacing = Math.min(144, W * 0.16); // 가로 간격
+  const baseY = Math.min(116, H * 0.35);
+  const spacing = Math.min(144, W * 0.16);
 
   tiles.forEach((tile, index) => {
     const off = getCircularDistanceOffset(index, state.carouselIdx, total);
     
-    // 직선 가로 정렬 & 양끝은 포물선 수식으로 살짝 아래로(Y증가) 꺾이도록 제어
+    // 직선 나열이되, 변두리로 갈 수록 살짝 아래 방향으로 자연스럽게 하강하는 수식
     const x = centerX + off * spacing;
-    const y = baseY + Math.pow(Math.abs(off), 1.6) * 16; 
+    const y = baseY + Math.pow(Math.abs(off), 1.62) * 16.5; 
     
     const baseScale = Math.max(0.55, 1 - Math.abs(off) * 0.08);
     const rotation = off * -3.5;
-    const opacity = Math.max(0.2, 1 - Math.abs(off) * 0.16);
+    const opacity = Math.max(0.15, 1 - Math.abs(off) * 0.16);
 
-    // 마우스 접근 시 확대 효과 (피드백 향상)
     let zoomBoost = 0;
     if (pointerX !== null) {
       const dist = Math.abs(pointerX - x);
@@ -729,10 +851,8 @@ function rotateCurveDial(dir) {
 }
 
 // ═══════════════════════════════════════════════════
-//  [B] 일반 앱 배열 그리드 시스템
+//  [B] 일반 앱 격자 슬라이더 레이아웃
 // ═══════════════════════════════════════════════════
-const getGridLimit = () => (window.innerWidth < 720 ? 6 : 8);
-
 function renderGridPageLayout() {
   const track = $("#gridTrack");
   track.innerHTML = "";
@@ -748,7 +868,7 @@ function renderGridPageLayout() {
     const slice = state.items.slice(p * limit, (p + 1) * limit);
 
     if (!slice.length) {
-      page.innerHTML = `<div class="emptyState">앱을 추가하세요.</div>`;
+      page.innerHTML = `<div class="emptyState">어플리케이션을 등록해 보세요.</div>`;
     } else {
       slice.forEach(it => page.appendChild(buildTileComponent(it, "", "grid")));
     }
@@ -768,7 +888,7 @@ function changeGridPage(dir) {
 }
 
 // ═══════════════════════════════════════════════════
-//  안드로이드 스쿼클 컴포넌트 렌더러
+//  안드로이드 컴포넌트 렌더러
 // ═══════════════════════════════════════════════════
 function buildTileComponent(item, parentId = "", mode = "grid") {
   const tile = document.createElement("div");
@@ -777,7 +897,6 @@ function buildTileComponent(item, parentId = "", mode = "grid") {
   tile.dataset.parentId = parentId;
   tile.dataset.kind = item.kind;
 
-  // 아이콘 영역 조립
   const iconBox = document.createElement("div");
   iconBox.className = "tile-icon";
 
@@ -808,7 +927,6 @@ function buildTileComponent(item, parentId = "", mode = "grid") {
 
   tile.append(iconBox, nameLabel, moreBtn, badge);
 
-  // 이벤트 바인딩
   tile.addEventListener("click", e => {
     if (Date.now() < ignoreClickUntil) return;
     if (e.target.closest(".tile-more")) return;
@@ -867,34 +985,21 @@ function getAppIconSrc(item) {
   try {
     const u = new URL(normalizeAppUrl(item.url));
     if (!/^https?:$/.test(u.protocol)) return MAGIC_ICON;
-    // 고해상도 구글 파비콘 API 주입 (지구본 방지)
     return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(u.hostname)}&sz=128`;
   } catch {
     return MAGIC_ICON;
   }
 }
 
-function normalizeAppUrl(url) {
-  const s = url.trim();
-  if (!s) return "";
-  if (/^(javascript|data):/i.test(s)) return "";
-  if (/^[a-zA-Z][\w+\-.]*:/.test(s)) return s;
-  if (s.startsWith("//")) return `https:${s}`;
-  return `https://${s}`;
-}
-
 function routeAppTarget(url) {
   const target = normalizeAppUrl(url);
   if (!target) {
-    toast("연결할 수 없는 규격 외 주소입니다.");
+    toast("주소 규격이 올바르지 않습니다.");
     return;
   }
   window.location.href = target;
 }
 
-// ═══════════════════════════════════════════════════
-//  구글 위젯 검색 연산 및 라우팅
-// ═══════════════════════════════════════════════════
 function execQuerySearch() {
   const val = $("#searchInput").value.trim();
   if (!val) return;
@@ -908,9 +1013,6 @@ function isURLFormat(str) {
   return /^(localhost|[\w.-]+\.[a-z]{2,})(:\d+)?(\/.*)?$/i.test(str);
 }
 
-// ═══════════════════════════════════════════════════
-//  모음 전체 일괄 실행 로직 (팝업 우회 대응)
-// ═══════════════════════════════════════════════════
 function retrieveBatchList(items, collect = []) {
   items.forEach(it => {
     if (it.kind === "app" && it.launchGroup) {
@@ -927,7 +1029,7 @@ function retrieveBatchList(items, collect = []) {
 function handleBatchLaunch() {
   const list = retrieveBatchList(state.items);
   if (!list.length) {
-    toast("모음 그룹에 등록된 앱이 없습니다. 앱 연동 설정을 편집해 보세요.");
+    toast("모음으로 설정된 어플리케이션이 존재하지 않습니다.");
     return;
   }
   executePopupLaunchAll(list);
@@ -946,7 +1048,7 @@ function triggerFolderLaunchAll(folderId) {
 function executePopupLaunchAll(urls) {
   urls.forEach((url, i) => {
     if (i === 0) {
-      window.location.href = url; // 첫 번째 링크는 바로 이동
+      window.location.href = url;
     } else {
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -960,7 +1062,7 @@ function executePopupLaunchAll(urls) {
 }
 
 // ═══════════════════════════════════════════════════
-//  컨텍스트 퀵 메뉴 조립기
+//  컨텍스트 메뉴 제어
 // ═══════════════════════════════════════════════════
 function triggerQuickMenu(itemId, x, y) {
   const find = findSystemItem(itemId);
@@ -991,18 +1093,18 @@ function triggerQuickMenu(itemId, x, y) {
     add("🌐 즉시 연결", () => routeAppTarget(item.url));
     add("✏️ 배치 수정", () => openAppInputModal(item.id));
     drawSep();
-    add(item.launchGroup ? "✨ 모음 그룹 탈퇴" : "✨ 모음 그룹 합류", () => {
+    add(item.launchGroup ? "✨ 모음 그룹 해제" : "✨ 모음 그룹 등록", () => {
       item.launchGroup = !item.launchGroup;
       saveState();
       renderAllComponents();
     });
     drawSep();
-    add("🗑 앱 삭제", () => deleteSelectedElement(item.id), true);
+    add("🗑 앱 제거", () => deleteSelectedElement(item.id), true);
   } else {
-    add("📂 폴더 전개", () => triggerFolderPopupView(item.id));
-    add("✏️ 폴더명 수정", () => openAppInputModal(item.id));
-    add("➕ 앱 등록", () => openAppInputModal(null, item.id));
-    add("🚀 내부 앱 일괄 실행", () => triggerFolderLaunchAll(item.id));
+    add("📂 폴더 열기", () => triggerFolderPopupView(item.id));
+    add("✏️ 속성 편집", () => openAppInputModal(item.id));
+    add("➕ 하위 앱 등록", () => openAppInputModal(null, item.id));
+    add("🚀 내부 일괄 기동", () => triggerFolderLaunchAll(item.id));
     drawSep();
     add("🗑 폴더 폭파", () => deleteSelectedElement(item.id), true);
   }
@@ -1019,9 +1121,6 @@ function hideQuickMenu() {
   $("#quickMenu").classList.add("hidden");
 }
 
-// ═══════════════════════════════════════════════════
-//  모달 오버레이 제어 및 백드롭 연동
-// ═══════════════════════════════════════════════════
 function openOverlayPanel(el) {
   if (!el) return;
   el.classList.remove("hidden");
@@ -1057,7 +1156,7 @@ function syncBackdropState() {
 }
 
 // ═══════════════════════════════════════════════════
-//  앱 정보 모달 조작 및 구조 삽입
+//  어플리케이션 모달 구조 세팅
 // ═══════════════════════════════════════════════════
 function openAppInputModal(itemId = null, parentHint = "") {
   curEditId = itemId;
@@ -1070,7 +1169,6 @@ function openAppInputModal(itemId = null, parentHint = "") {
   setSegmentActive("entryTypeSeg", "entryType", type);
   onEntryFormToggle(type);
 
-  // 데이터 리커버리 채우기
   $("#appName").value = target?.name || "";
   $("#appUrl").value = target?.url || "";
   $("#appIconUrl").value = target?.iconMode === "link" ? target.icon : "";
@@ -1124,7 +1222,6 @@ async function handleAppFormSave(e) {
     return;
   }
 
-  // 앱 형식 처리
   const name = $("#appName").value.trim() || "이름 없는 앱";
   const url = $("#appUrl").value.trim();
   if (!url) {
@@ -1180,7 +1277,6 @@ function insertTargetIntoParent(parentId, item) {
   else state.items.push(item);
 }
 
-// ── 안드로이드 폴더 드로워 팝업 전개 ──────────────────
 function triggerFolderPopupView(id) {
   folderOpenId = id;
   renderFolderPopup();
@@ -1209,7 +1305,6 @@ function getFolderById(id) {
   return state.items.find(it => it.kind === "folder" && it.id === id) || null;
 }
 
-// ── 구조체 검색 및 파괴 ─────────────────────────────
 function findSystemItem(id) {
   for (let i = 0; i < state.items.length; i++) {
     const it = state.items[i];
@@ -1245,7 +1340,7 @@ function deleteSelectedElement(id) {
 }
 
 // ═══════════════════════════════════════════════════
-//  안드로이드 런처 스무스 드래그 앤 스왑
+//  안드로이드 드래그 앤 리오더 물리 피드백 런처
 // ═══════════════════════════════════════════════════
 function attachAndroidDrag(tile, itemId) {
   tile.addEventListener("pointerdown", e => {
@@ -1293,7 +1388,7 @@ function initDragContext(id, tile, x, y) {
   window.addEventListener("pointerup", onPointerDragEnd, { once: true });
   window.addEventListener("pointercancel", onPointerDragEnd, { once: true });
 
-  toast("이동 상태 돌입 - 다른 앱 아이콘에 겹쳐서 폴더를 만드세요.");
+  toast("이동 중 - 아이콘끼리 겹치면 폴더로 병합됩니다.");
 }
 
 function updateGhostPosition(x, y) {
@@ -1330,7 +1425,6 @@ function onPointerDragTracking(e) {
   if (tgt.item.kind === "folder" && src.item.kind === "app" && src.parentId !== tgt.item.id) {
     mode = "into-folder";
   } else if (src.parent === tgt.parent) {
-    // 겹치기 감지
     const r = targetTile.getBoundingClientRect();
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
@@ -1421,44 +1515,83 @@ function execMergeToNewFolder(aId, bId) {
 }
 
 // ═══════════════════════════════════════════════════
-//  포스트잇 메모 컨트롤러
+//  📌 포스트잇 메모 (고정식 선별 캐시 기능 탑재) 📌
 // ═══════════════════════════════════════════════════
 function makeNewStickyNote() {
   const palette = ["#ffe78d", "#ffd4ea", "#d6ffb3", "#cae8ff", "#f0d2ff"];
   const n = state.notes.length;
+  
+  // 설정에서 자동 고정(autoPinNotes)이 활성화되어 있으면 true, 기본값은 false(비활성)
+  const isPinned = !!state.settings.autoPinNotes;
+
   state.notes.push({
     id: uid("note"),
     text: "새 메모",
+    pinned: isPinned, 
     x: clamp(40 + (n * 24) % 240, 14, window.innerWidth - 230),
     y: clamp(120 + (n * 18) % 180, 90, window.innerHeight - 220),
     color: palette[n % palette.length],
   });
   saveState();
   renderNotes();
+  if (isPinned) toast("메모가 핀으로 고정되어 자동 세이브됩니다.");
 }
 
 function renderNotes() {
   const layer = $("#notesLayer");
   layer.innerHTML = "";
+  
   state.notes.forEach(note => {
     const el = document.createElement("div");
     el.className = "note";
+    if (note.pinned) el.classList.add("pinned-state");
+    
     el.style.left = `${note.x}px`;
     el.style.top = `${note.y}px`;
     el.style.background = note.color;
 
     const bar = document.createElement("div");
     bar.className = "note-bar";
-    bar.innerHTML = `<span>📌</span>`;
+    bar.innerHTML = `<span>✏️</span>`;
+
+    const ctrls = document.createElement("div");
+    ctrls.className = "note-controls";
+
+    // 동적 핀 고정 토글 버튼 생성
+    const pinBtn = document.createElement("button");
+    pinBtn.type = "button";
+    pinBtn.className = `note-pin-btn ${note.pinned ? 'active' : ''}`;
+    pinBtn.innerHTML = note.pinned ? "📌" : "📍";
+    pinBtn.title = note.pinned ? "고정 해제 (리로드 시 소멸)" : "핀 고정 세이브 (영구 저장)";
+    
+    pinBtn.addEventListener("click", () => {
+      note.pinned = !note.pinned;
+      pinBtn.className = `note-pin-btn ${note.pinned ? 'active' : ''}`;
+      pinBtn.innerHTML = note.pinned ? "📌" : "📍";
+      pinBtn.title = note.pinned ? "고정 해제 (리로드 시 소멸)" : "핀 고정 세이브 (영구 저장)";
+      
+      if (note.pinned) {
+        el.classList.add("pinned-state");
+        toast("메모가 핀 고정되어 영구 캐시에 등록되었습니다.");
+      } else {
+        el.classList.remove("pinned-state");
+        toast("핀 고정이 풀려 새로고침 시 이 메모는 소멸됩니다.");
+      }
+      saveState();
+    });
 
     const del = document.createElement("button");
-    del.type = "button"; del.textContent = "✕";
+    del.type = "button"; 
+    del.textContent = "✕";
+    del.title = "삭제";
     del.addEventListener("click", () => {
       state.notes = state.notes.filter(n => n.id !== note.id);
       saveState();
       renderNotes();
     });
-    bar.appendChild(del);
+
+    ctrls.append(pinBtn, del);
+    bar.appendChild(ctrls);
 
     const body = document.createElement("div");
     body.className = "note-body";
@@ -1471,6 +1604,7 @@ function renderNotes() {
     });
 
     bar.addEventListener("pointerdown", e => {
+      if (e.target.closest("button")) return;
       const r = el.getBoundingClientRect();
       const ox = e.clientX - r.left, oy = e.clientY - r.top;
       const move = ev => {
@@ -1493,7 +1627,7 @@ function renderNotes() {
 }
 
 // ═══════════════════════════════════════════════════
-//  시간 / 날씨 시스템 모듈
+//  시간 및 기상관측
 // ═══════════════════════════════════════════════════
 function startSystemClock() {
   clearInterval(clockInterval);
@@ -1544,7 +1678,7 @@ async function fetchRealtimeWeather(force = false) {
       box.textContent = "날씨 갱신 실패";
     }
   }, () => {
-    box.textContent = "GPS 신호 수신 필요";
+    box.textContent = "GPS 수신 필요";
   }, { timeout: 8000, maximumAge: 600000 });
 }
 
@@ -1560,7 +1694,7 @@ function getWeatherCodeIcon(c) {
 
 function getWeatherCodeDesc(c) {
   const map = {
-    0: "맑음", 1: "구름 한 점 없음", 2: "구름 조금", 3: "흐림", 45: "안개", 48: "안개 서리",
+    0: "맑음", 1: "구름 없음", 2: "구름 조금", 3: "흐림", 45: "안개", 48: "안개 서리",
     51: "약한 이슬비", 53: "이슬비", 55: "강한 이슬비", 61: "약한 비", 63: "보통 비", 65: "폭우",
     71: "약한 눈", 73: "보통 눈", 75: "폭설", 77: "눈싸라기", 80: "소나기", 81: "강한 소나기",
     95: "천둥번개", 96: "뇌우 우박"
@@ -1568,9 +1702,8 @@ function getWeatherCodeDesc(c) {
   return map[c] || "날씨 파악 불능";
 }
 
-// ═══════════════════════════════════════════════════
-//  유틸리티 기하 연산 및 변환기
-// ═══════════════════════════════════════════════════
+const getGridLimit = () => (window.innerWidth < 720 ? 6 : 8);
+
 function bindSwipeDetection(el, cb, skipTiles = false) {
   let sx = null, sy = null;
   el.addEventListener("pointerdown", e => {
