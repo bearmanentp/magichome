@@ -1,14 +1,11 @@
-/* =======================================================
-   안드로이드 MATERIAL YOU 테마 및 CSS 리셋
-   ======================================================= */
 :root {
-  --bg: #0c0a10;               /* Ultra Dark Android Black */
+  --bg: #0c0a10;
   --surface: rgba(22, 19, 28, 0.45);
   --surface-strong: rgba(26, 22, 34, 0.95);
   --border: rgba(255, 255, 255, 0.08);
   --text: #e7e0ec;
   --text-muted: rgba(231, 224, 236, 0.55);
-  --accent: #d0bcff;            /* Classic Squircle Accent */
+  --accent: #d0bcff;
   --accent-container: #4f378b;
   --danger: #ffb4ab;
   --shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
@@ -44,9 +41,6 @@ a { color: inherit; text-decoration: none; }
   box-shadow: var(--shadow);
 }
 
-/* =======================================================
-   배경 레이어 아키텍처
-   ======================================================= */
 #bgSolidLayer,
 #bgEmojiLayer,
 #bgImageLayer,
@@ -74,7 +68,6 @@ a { color: inherit; text-decoration: none; }
   background: radial-gradient(circle at center, transparent 20%, rgba(5,4,8,0.7) 100%);
 }
 
-/* 날아다니는 이모지 레이어 */
 .floating-emoji {
   position: absolute;
   font-size: 32px;
@@ -90,9 +83,6 @@ a { color: inherit; text-decoration: none; }
   100% { transform: translateY(-15dvh) rotate(360deg) scale(1.2); opacity: 0; }
 }
 
-/* =======================================================
-   시작 인트로 디자인
-   ======================================================= */
 #intro {
   position: fixed; inset: 0; z-index: 99;
   display: flex; flex-direction: column;
@@ -125,9 +115,6 @@ a { color: inherit; text-decoration: none; }
 }
 .intro-skip:hover { background: rgba(255,255,255,.12); transform: scale(1.03); }
 
-/* =======================================================
-   전체 컨테이너 구동 애니메이션
-   ======================================================= */
 #shell {
   position: relative; z-index: 10;
   width: 100%; height: 100dvh;
@@ -140,9 +127,6 @@ a { color: inherit; text-decoration: none; }
   to   { opacity: 1; transform: scaleX(1)   scaleY(1);   }
 }
 
-/* =======================================================
-   상단바
-   ======================================================= */
 .topbar {
   position: relative;
   display: flex; align-items: center; justify-content: space-between;
@@ -176,9 +160,6 @@ a { color: inherit; text-decoration: none; }
 .act-btn span { font-size: 18px; }
 .act-btn em { font-style: normal; font-size: 13px; font-weight: 700; }
 
-/* =======================================================
-   구글 위젯 검색 필드
-   ======================================================= */
 .hero {
   height: calc(100dvh - 76px);
   display: flex; flex-direction: column; align-items: center;
@@ -220,9 +201,6 @@ a { color: inherit; text-decoration: none; }
 }
 .searchBtn:hover { filter: brightness(1.15); transform: translateY(-1px); }
 
-/* =======================================================
-   앱 디스플레이 섹션
-   ======================================================= */
 .appSection {
   width: min(1200px, 98vw);
   margin-top: 28px;
@@ -275,15 +253,12 @@ a { color: inherit; text-decoration: none; }
   gap: 16px; padding: 4px;
 }
 
-/* =======================================================
-   앱 구조 다이얼 시스템 디자인
-   ======================================================= */
 .app-tile {
   border: 1px solid rgba(255,255,255,.09);
   background: rgba(30, 27, 36, 0.45);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border-radius: 28px;               /* Squircle Android Style */
+  border-radius: 28px;
   color: var(--text);
   overflow: hidden; cursor: pointer;
   box-shadow: 0 8px 24px rgba(0,0,0,.16);
@@ -339,7 +314,6 @@ a { color: inherit; text-decoration: none; }
   display: grid; place-items: center; font-size: 11px;
 }
 
-/* 안드로이드 폴더 확장용 레이아웃 */
 .folder-preview {
   width: 100%; height: 100%;
   display: grid; gap: 4px; padding: 4px;
@@ -356,7 +330,6 @@ a { color: inherit; text-decoration: none; }
 .mini-icon img { width: 100%; height: 100%; object-fit: cover; }
 .mini-icon.empty { opacity: .12; }
 
-/* 드래그 상태 */
 .drag-source { opacity: .15 !important; }
 .drag-ghost {
   position: fixed !important; left: 0; top: 0; z-index: 1000;
@@ -374,56 +347,138 @@ body.dragging * { cursor: grabbing !important; }
 }
 
 /* =======================================================
-   안드로이드 스타일 포스트잇 메모장 (핀 버튼 강화)
+   📝 메모 시스템 (핀, 최소화, 리사이즈 전면 개편)
    ======================================================= */
 #notesLayer { position: fixed; inset: 0; z-index: 15; pointer-events: none; }
+
 .note {
-  position: absolute; width: 224px; min-height: 180px;
-  border-radius: 20px; overflow: hidden; pointer-events: auto;
+  position: absolute;
+  min-width: 180px;
+  min-height: 80px;
+  border-radius: 16px;
+  overflow: hidden;
+  pointer-events: auto;
   box-shadow: 0 10px 24px rgba(0,0,0,0.2);
   border: 1px solid rgba(0,0,0,0.04);
-  transition: box-shadow .2s;
+  transition: box-shadow .2s, border-color .2s;
+  display: flex;
+  flex-direction: column;
 }
-/* 핀 상태에 따른 하이라이팅 피드백 */
+
 .note.pinned-state {
-  box-shadow: 0 16px 36px rgba(157, 124, 255, 0.22);
-  border: 1.5px solid var(--accent);
+  box-shadow: 0 16px 36px rgba(208, 188, 255, 0.35);
+  border: 2px solid var(--accent);
 }
+
+/* 최소화된 상태: 본문과 리사이저 숨김 */
+.note.minimized {
+  min-height: 0 !important;
+  height: auto !important;
+  resize: none !important;
+}
+.note.minimized .note-body,
+.note.minimized .note-resizer {
+  display: none !important;
+}
+
 .note-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 12px; background: rgba(0,0,0,.06);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 6px 14px;
+  background: rgba(0,0,0,.08);
   cursor: grab;
+  user-select: none;
+  min-height: 36px;
 }
+
+.note-bar:active { cursor: grabbing; }
+
+.note-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(0,0,0,0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .note-controls {
-  display: flex; gap: 6px; align-items: center;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex: 0 0 auto;
 }
-.note-bar button {
-  width: 24px; height: 24px; border-radius: 50%;
-  background: rgba(0,0,0,0.06); display: grid; place-items: center;
-  font-size: 12px; transition: background .15s, transform .15s;
+
+.note-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.06);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: rgba(0,0,0,0.6);
+  transition: background .15s, transform .15s, color .15s;
+  cursor: pointer;
+  flex: 0 0 26px;
 }
-.note-bar button:hover {
-  background: rgba(255,255,255,0.15);
-  transform: scale(1.05);
+
+.note-btn:hover {
+  background: rgba(0,0,0,0.14);
+  transform: scale(1.1);
 }
-/* 핀 활성/비활성 스타일 */
-.note-pin-btn {
-  color: rgba(0,0,0,0.3);
-}
+
 .note-pin-btn.active {
-  color: #ff3b30 !important;
-  background: rgba(255,255,255,0.22) !important;
-  transform: rotate(-15deg);
+  color: #d0bcff !important;
+  background: rgba(79, 55, 139, 0.9) !important;
+  transform: rotate(-20deg);
+}
+
+.note-pin-btn.active:hover {
+  transform: rotate(-20deg) scale(1.1);
 }
 
 .note-body {
-  min-height: 140px; padding: 12px;
-  color: #211f26; font-size: 14.5px; line-height: 1.5;
-  white-space: pre-wrap; outline: none;
+  flex: 1;
+  min-height: 60px;
+  padding: 10px 14px 14px;
+  color: #211f26;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  outline: none;
+  overflow-y: auto;
+  word-wrap: break-word;
+}
+
+.note-resizer {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg,
+      transparent 0%,
+      transparent 50%,
+      rgba(0,0,0,0.25) 50%,
+      rgba(0,0,0,0.25) 60%,
+      transparent 60%,
+      transparent 70%,
+      rgba(0,0,0,0.25) 70%,
+      rgba(0,0,0,0.25) 80%,
+      transparent 80%);
+  z-index: 5;
 }
 
 /* =======================================================
-   사이드바 패널 및 모달윈도우
+   사이드바 패널 및 모달 윈도우
    ======================================================= */
 .panel, .modal {
   position: fixed; z-index: 50;
@@ -479,9 +534,6 @@ body.dragging * { cursor: grabbing !important; }
   overflow-y: auto; max-height: calc(100dvh - 110px);
 }
 
-/* =======================================================
-   설정 폼 인풋 스타일
-   ======================================================= */
 .section-title {
   font-size: 12px; font-weight: 800; color: var(--accent);
   letter-spacing: .08em; text-transform: uppercase;
@@ -502,7 +554,6 @@ body.dragging * { cursor: grabbing !important; }
 .inp:focus { background: rgba(255,255,255,.09); border-color: var(--accent); }
 .emoji-inp { font-size: 22px; text-align: center; max-width: 90px; }
 
-/* 커스텀 선택 바 박스 */
 .sel-wrap { position: relative; }
 .sel-wrap::after {
   content: "▾"; position: absolute; right: 16px; top: 50%;
@@ -519,7 +570,6 @@ body.dragging * { cursor: grabbing !important; }
 .sel:focus { border-color: var(--accent); }
 .sel option { background: #1c1b1f; color: var(--text); }
 
-/* 안드로이드 세그먼트 스위치 */
 .seg-ctrl { display: flex; gap: 6px; background: rgba(0,0,0,0.18); padding: 4px; border-radius: 14px; }
 .seg-btn {
   flex: 1; padding: 10px 8px; border-radius: 10px;
@@ -528,7 +578,6 @@ body.dragging * { cursor: grabbing !important; }
 }
 .seg-btn.active { background: var(--accent-container); color: var(--accent); }
 
-/* 토글 스위치 */
 .toggle-label { cursor: pointer; }
 .toggle-inp { display: none; }
 .toggle-track {
@@ -546,7 +595,6 @@ body.dragging * { cursor: grabbing !important; }
   transform: translateX(22px); background: #1c1b1f;
 }
 
-/* 파일 가상 업로더 */
 .file-label { display: flex; align-items: center; gap: 12px; cursor: pointer; }
 .file-inp { display: none; }
 .file-btn {
@@ -556,7 +604,6 @@ body.dragging * { cursor: grabbing !important; }
 }
 .file-name { font-size: 13px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* 버튼 */
 .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
 .primary-btn {
   padding: 12px 24px; border-radius: 14px;
@@ -577,22 +624,15 @@ body.dragging * { cursor: grabbing !important; }
 }
 .danger-btn:hover { background: rgba(255, 180, 171, 0.25); }
 
-/* 폴더 컨트롤 */
 .folderCtrlBar { display: flex; gap: 8px; align-items: center; }
 .small-btn { padding: 8px 14px; font-size: 13px; border-radius: 10px; }
 
-/* =======================================================
-   안드로이드 폴더 드로워
-   ======================================================= */
 .folderApps {
   padding: 24px; display: grid;
   grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
   gap: 16px; max-height: calc(85dvh - 80px); overflow-y: auto;
 }
 
-/* =======================================================
-   터치 컨텍스트 퀵 메뉴
-   ======================================================= */
 .quickMenu {
   position: fixed; z-index: 100;
   min-width: 180px; padding: 6px;
@@ -607,7 +647,6 @@ body.dragging * { cursor: grabbing !important; }
 .quickMenu .danger { color: var(--danger); }
 .qm-sep { height: 1px; background: rgba(255,255,255,.07); margin: 4px 0; }
 
-/* 토스트 피드백 */
 #toast {
   position: fixed; left: 50%; bottom: 24px;
   transform: translateX(-50%) translateY(16px); z-index: 110;
@@ -618,7 +657,6 @@ body.dragging * { cursor: grabbing !important; }
 }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-/* 모바일 반응형 조절 */
 @media (max-width: 900px) {
   .grid-page { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
