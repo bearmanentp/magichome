@@ -1,1230 +1,635 @@
-/* ================================================
-   MagicHome — app.js
-   ================================================ */
+/* ====== MagicHome v2 ====== */
+const STORE = "magichome_v2";
 
-const SK = "magichome_v2";
+const ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect rx="28" width="120" height="120" fill="#0f1422"/><circle cx="92" cy="25" r="9" fill="#fff8a6"/><circle cx="104" cy="41" r="5" fill="#fff"/><text x="20" y="84" font-size="64">🪄</text></svg>`;
+const FALLBACK_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(ICON_SVG)}`;
 
-// ── 검색 엔진 ──────────────────────────────────────
 const ENGINES = {
-  google:  { label: "🔍 Google",  q: q => `https://www.google.com/search?q=${enc(q)}` },
-  naver:   { label: "🟢 Naver",   q: q => `https://search.naver.com/search.naver?query=${enc(q)}` },
-  daum:    { label: "🟠 Daum",    q: q => `https://search.daum.net/search?w=tot&q=${enc(q)}` },
-  youtube: { label: "▶ YouTube",  q: q => `https://www.youtube.com/results?search_query=${enc(q)}` },
-  nate:    { label: "🌀 Nate",    q: q => `https://search.nate.com/search/all.html?q=${enc(q)}` },
+  google:  { label:"Google",  url:q=>`https://www.google.com/search?q=${encodeURIComponent(q)}` },
+  naver:   { label:"Naver",   url:q=>`https://search.naver.com/search.naver?query=${encodeURIComponent(q)}` },
+  daum:    { label:"Daum",    url:q=>`https://search.daum.net/search?w=tot&q=${encodeURIComponent(q)}` },
+  youtube: { label:"YouTube", url:q=>`https://www.youtube.com/results?search_query=${encodeURIComponent(q)}` },
+  nate:    { label:"Nate",    url:q=>`https://search.nate.com/search/all.html?q=${encodeURIComponent(q)}` },
 };
-const enc = encodeURIComponent;
 
-// ── 매직 이모지 기본 아이콘 ─────────────────────────
-const MAGIC_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
-  <defs><linearGradient id="g" x1="0" x2="1"><stop offset="0%" stop-color="#9d7cff"/><stop offset="100%" stop-color="#59b7ff"/></linearGradient></defs>
-  <rect rx="28" width="120" height="120" fill="#0f1422"/>
-  <text x="18" y="84" font-size="66">🪄</text>
-</svg>`;
-const MAGIC_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(MAGIC_SVG)}`;
+const $=s=>document.querySelector(s);
+const $$=s=>[...document.querySelectorAll(s)];
+const clamp=(n,a,b)=>Math.min(b,Math.max(a,n));
+const uid=(p="i")=>`${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
 
-// ── 유틸 ───────────────────────────────────────────
-const $ = (s, p = document) => p.querySelector(s);
-const $$ = (s, p = document) => [...p.querySelectorAll(s)];
-const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
-function uid(p = "id") {
-  if (crypto?.randomUUID) return `${p}_${crypto.randomUUID()}`;
-  return `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,8)}`;
+/* ====== STATE ====== */
+let S = load();
+let editId = null, openFolderId = null, curvePtr = null;
+let dragState = null, toastTm = null, threeCtx = null;
+let ignoreClick = 0;
+
+document.addEventListener("DOMContentLoaded", boot);
+
+function boot(){
+  fillEngineOpts();
+  bindAll();
+  syncSettingsUI();
+  initThree();
+  renderAll();
+  startClock();
+  doIntro();
 }
 
-// ── 상태 ───────────────────────────────────────────
-let state = loadState();
-let threeCtx      = null;
-let dragInfo      = null;
-let folderOpenId  = null;
-let curEditId     = null;
-let ignoreClickTil = 0;
-let pointerX = null, pointerY = null;
-let toastTmr = null;
+/* ====== DEFAULT DATA ====== */
+function defaults(){
+  return {
+    cfg:{
+      layout:"curve", engine:"google",
+      showClock:true, showWeather:false,
+      skipIntro:false, mouseEffect:true,
+      welcome:"반가워요. 오늘도 매직하게 시작해볼까요?",
+      bgType:"three", bgImage:"", bgFit:"cover",
+    },
+    items: defaultApps(),
+    notes:[], ci:0, gp:0, wc:null,
+  };
+}
 
-// ── 기본 상태 ──────────────────────────────────────
-function defaultItems() {
+function defaultApps(){
   return [
-    app("Google",       "https://www.google.com",   false),
-    app("Naver",        "https://www.naver.com",    false),
-    app("YouTube",      "https://www.youtube.com",  true),
-    app("GitHub",       "https://github.com",       true),
-    app("Daum",         "https://www.daum.net",     false),
-    folder("즐겨찾기", "🪄", [
-      app("Nate",         "https://www.nate.com",     false),
-      app("YouTube Music","https://music.youtube.com",false),
-    ]),
+    app("Google","https://www.google.com",false),
+    app("Naver","https://www.naver.com",false),
+    app("YouTube","https://www.youtube.com",true),
+    app("GitHub","https://github.com",true),
+    app("Daum","https://www.daum.net",true),
+    {id:uid("f"),kind:"folder",name:"즐겨찾기",emoji:"⭐",items:[
+      app("Nate","https://www.nate.com",true),
+      app("YouTube Music","https://music.youtube.com",true),
+    ]},
   ];
 }
-function app(name, url, lg = false, id) {
-  return { id: id || uid("app"), kind:"app", name, url, iconMode:"auto", icon:"", launchGroup: lg };
+function app(name,url,lg){return{id:uid("a"),kind:"app",name,url,iconMode:"auto",icon:"",launchGroup:lg}}
+
+/* ====== PERSIST ====== */
+function load(){
+  const d=defaults();
+  try{
+    const r=localStorage.getItem(STORE);
+    if(!r)return d;
+    const s=JSON.parse(r);
+    return {...d,...s,cfg:{...d.cfg,...(s.cfg||{})},items:norm(s.items||d.items),notes:Array.isArray(s.notes)?s.notes:[]};
+  }catch{return d}
 }
-function folder(name, emoji, items = [], id) {
-  return { id: id || uid("fld"), kind:"folder", name, emoji, items };
+function save(){try{localStorage.setItem(STORE,JSON.stringify(S))}catch{toast("저장 공간 부족")}}
+function norm(arr){
+  if(!Array.isArray(arr))return defaultApps();
+  return arr.map(x=>x.kind==="folder"?{...x,emoji:x.emoji||"🪄",items:Array.isArray(x.items)?x.items.map(c=>({...c,kind:"app",iconMode:c.iconMode||"auto",icon:c.icon||"",launchGroup:!!c.launchGroup})):[]}:{...x,kind:"app",iconMode:x.iconMode||"auto",icon:x.icon||"",launchGroup:!!x.launchGroup});
 }
 
-function defaultState() {
-  return {
-    settings: {
-      layout:       "curve",
-      searchEngine: "google",
-      showClock:    true,
-      showWeather:  false,
-      showIntro:    true,
-      threeMouseFx: true,
-      welcomeMsg:   "반가워요. 오늘도 매직하게 시작해볼까요?",
-      bgType:       "three",
-      bgImage:      "",
-      bgFit:        "cover",
-    },
-    items:          defaultItems(),
-    notes:          [],
-    carouselIdx:    0,
-    gridPage:       0,
-    weatherCache:   null,
+/* ====== ENGINE OPTS ====== */
+function fillEngineOpts(){
+  const h=Object.entries(ENGINES).map(([k,v])=>`<option value="${k}">${v.label}</option>`).join("");
+  $("#eng").innerHTML=h;
+  $("#sEng").innerHTML=h;
+}
+
+/* ====== BIND ====== */
+function bindAll(){
+  /* 상단 버튼 */
+  $("#btnSet").onclick=()=>showOv($("#setPanel"));
+  $("#btnAdd").onclick=()=>openAppModal();
+  $("#btnNote").onclick=createNote;
+  $("#btnCollection").onclick=launchAll;
+  $("#backdrop").onclick=closeAll;
+
+  /* 닫기 위임 */
+  document.addEventListener("click",e=>{
+    if(e.target.closest("[data-close]")){const w=e.target.closest(".panel,.modal");if(w)closeOv(w)}
+    if(!e.target.closest(".qmenu")&&!e.target.closest(".tmore"))hideQM();
+  });
+  document.addEventListener("keydown",e=>{if(e.key==="Escape")closeAll()});
+
+  /* 검색 */
+  $("#sbtn").onclick=doSearch;
+  $("#sinput").onkeydown=e=>{if(e.key==="Enter")doSearch()};
+  $("#eng").onchange=e=>{S.cfg.engine=e.target.value;$("#sEng").value=e.target.value;save()};
+  $("#sEng").onchange=e=>{S.cfg.engine=e.target.value;$("#eng").value=e.target.value;save()};
+
+  /* 설정 토글 */
+  $("#sLayout").onchange=e=>{S.cfg.layout=e.target.value;save();switchLayout()};
+  $("#sWelcome").oninput=e=>{S.cfg.welcome=e.target.value.trim();save()};
+  $("#tClock").onchange=e=>{S.cfg.showClock=e.target.checked;save();renderWidgets()};
+  $("#tWeather").onchange=e=>{S.cfg.showWeather=e.target.checked;save();renderWidgets();if(e.target.checked)fetchWeather(true)};
+  $("#tSkipIntro").onchange=e=>{S.cfg.skipIntro=e.target.checked;save()};
+  $("#tMouse3d").onchange=e=>{S.cfg.mouseEffect=e.target.checked;save()};
+
+  /* 배경 */
+  $("#sBgType").onchange=e=>{S.cfg.bgType=e.target.value;save();applyBg()};
+  $("#sBgFit").onchange=e=>{S.cfg.bgFit=e.target.value;save();applyBg()};
+  $("#applyBg").onclick=()=>{
+    const u=$("#sBgUrl").value.trim();
+    if(u){S.cfg.bgImage=u;S.cfg.bgType="image"}
+    S.cfg.bgFit=$("#sBgFit").value;S.cfg.bgType=$("#sBgType").value;
+    save();syncSettingsUI();applyBg();toast("배경 적용 완료");
   };
-}
-
-function loadState() {
-  const fb = defaultState();
-  try {
-    const raw = localStorage.getItem(SK);
-    if (!raw) return fb;
-    const s = JSON.parse(raw);
-    return {
-      ...fb, ...s,
-      settings: { ...fb.settings, ...(s.settings || {}) },
-      items:    normItems(s.items || fb.items),
-      notes:    Array.isArray(s.notes) ? s.notes : [],
-      carouselIdx: Number.isFinite(s.carouselIdx) ? s.carouselIdx : 0,
-      gridPage:    Number.isFinite(s.gridPage)    ? s.gridPage    : 0,
-      weatherCache: s.weatherCache || null,
-    };
-  } catch { return fb; }
-}
-function normItems(arr) {
-  if (!Array.isArray(arr)) return defaultItems();
-  return arr.map(it => {
-    if (it.kind === "folder")
-      return { ...it, kind:"folder", emoji: it.emoji||"🪄",
-               items: Array.isArray(it.items)
-                 ? it.items.map(c=>({...c,kind:"app",iconMode:c.iconMode||"auto",icon:c.icon||"",launchGroup:!!c.launchGroup}))
-                 : [] };
-    return { ...it, kind:"app", iconMode:it.iconMode||"auto", icon:it.icon||"", launchGroup:!!it.launchGroup };
-  });
-}
-function save() {
-  try { localStorage.setItem(SK, JSON.stringify(state)); }
-  catch { toast("저장 공간 부족 — 이미지를 줄여주세요."); }
-}
-
-// ═══════════════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════════════
-document.addEventListener("DOMContentLoaded", () => {
-  populateEngineSelects();
-  bindAll();
-  applyUI();
-  renderAll();
-  initThreeBg();       // <— Three.js 마지막으로 (빠른 첫 렌더)
-  startClock();
-  handleIntro();
-  applyBg();
-});
-
-// ── 인트로 ─────────────────────────────────────────
-function handleIntro() {
-  if (!state.settings.showIntro) {
-    $("#intro").classList.add("hide");
-    focusSearch();
-    return;
-  }
-  $("#introMessage").textContent = state.settings.welcomeMsg || "반가워요.";
-  setTimeout(hideIntro, 2000);
-}
-function hideIntro() {
-  const el = $("#intro");
-  if (!el || el.classList.contains("hide")) return;
-  el.classList.add("hide");
-  focusSearch();
-}
-function focusSearch() {
-  setTimeout(() => {
-    try { $("#searchInput").focus({ preventScroll: true }); } catch {}
-  }, 320);
-}
-
-// ═══════════════════════════════════════════════════
-//  검색 엔진 셀렉트
-// ═══════════════════════════════════════════════════
-function populateEngineSelects() {
-  const html = Object.entries(ENGINES)
-    .map(([k, v]) => `<option value="${k}">${v.label}</option>`)
-    .join("");
-  $("#engineSelect").innerHTML = html;
-  $("#settingsEngineSelect").innerHTML = html;
-}
-
-// ═══════════════════════════════════════════════════
-//  UI 상태 반영
-// ═══════════════════════════════════════════════════
-function applyUI() {
-  const s = state.settings;
-  $("#layoutSelect").value          = s.layout;
-  $("#engineSelect").value          = s.searchEngine;
-  $("#settingsEngineSelect").value  = s.searchEngine;
-  $("#welcomeInput").value          = s.welcomeMsg || "";
-  $("#showIntroToggle").checked     = !!s.showIntro;
-  $("#showClockToggle").checked     = !!s.showClock;
-  $("#showWeatherToggle").checked   = !!s.showWeather;
-  $("#bgTypeSelect").value          = s.bgType;
-  $("#bgFitSelect").value           = s.bgFit;
-  $("#threeMouseToggle").checked    = !!s.threeMouseFx;
-  $("#bgImageUrl").value = (s.bgImage && !s.bgImage.startsWith("data:")) ? s.bgImage : "";
-}
-
-function renderAll() {
-  state.items = normItems(state.items);
-  syncWidgets();
-  renderLayout();
-  renderCurve();
-  renderGrid();
-  renderNotes();
-}
-
-// ═══════════════════════════════════════════════════
-//  이벤트 바인딩
-// ═══════════════════════════════════════════════════
-function bindAll() {
-  // 인트로 건너뛰기
-  $("#introSkipBtn").addEventListener("click", hideIntro);
-
-  // 상단 버튼
-  $("#settingsBtn").addEventListener("click", () => openPanel($("#settingsPanel")));
-  $("#addAppBtn"  ).addEventListener("click", () => openAppModal());
-  $("#addNoteBtn" ).addEventListener("click", addNote);
-  $("#openAllBtn" ).addEventListener("click", openLaunchGroup);
-
-  // 백드롭
-  $("#modalBackdrop").addEventListener("click", closeAll);
-
-  // ESC
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeAll(); });
-
-  // [data-close] 속성 버튼
-  document.addEventListener("click", e => {
-    if (e.target.closest("[data-close]")) {
-      const wrap = e.target.closest(".panel, .modal");
-      if (wrap) closeLayer(wrap);
-    }
-    if (!e.target.closest(".quickMenu") && !e.target.closest(".tile-more")) hideQM();
-  });
-
-  // 검색 엔진 동기화
-  const syncEngine = val => {
-    state.settings.searchEngine = val; save();
-    $("#engineSelect").value = val;
-    $("#settingsEngineSelect").value = val;
+  $("#sBgFile").onchange=async e=>{
+    const f=e.target.files?.[0];if(!f)return;
+    try{S.cfg.bgImage=await shrink(f,1600,1000,false);S.cfg.bgType="image";save();syncSettingsUI();applyBg();toast("배경 저장됨")}
+    catch{toast("이미지 읽기 실패")}e.target.value="";
   };
-  $("#engineSelect"        ).addEventListener("change", e => syncEngine(e.target.value));
-  $("#settingsEngineSelect").addEventListener("change", e => syncEngine(e.target.value));
+  $("#resetAll").onclick=()=>{if(!confirm("전체 초기화할까요?"))return;localStorage.removeItem(STORE);location.reload()};
 
-  // 검색
-  $("#searchBtn").addEventListener("click", doSearch);
-  $("#searchInput").addEventListener("keydown", e => { if (e.key === "Enter") doSearch(); });
+  /* 앱폼 */
+  $("#fType").onchange=toggleTypeFields;
+  $("#fIconMode").onchange=updateIconUI;
+  $("#appForm").onsubmit=submitApp;
 
-  // 설정 토글/셀렉트
-  const onSetting = (id, key, transform = v => v) => {
-    $(id).addEventListener("change", e => {
-      state.settings[key] = transform(e.target.type === "checkbox" ? e.target.checked : e.target.value);
-      save();
-      renderAll();
-    });
-  };
-  onSetting("#layoutSelect",        "layout");
-  onSetting("#welcomeInput",        "welcomeMsg", v => v.trim());
-  onSetting("#showIntroToggle",     "showIntro");
-  onSetting("#showClockToggle",     "showClock");
-  onSetting("#showWeatherToggle",   "showWeather");
-  onSetting("#threeMouseToggle",    "threeMouseFx");
-  onSetting("#bgTypeSelect",        "bgType",  v => { applyBg(); return v; });
-  onSetting("#bgFitSelect",         "bgFit",   v => { applyBg(); return v; });
+  /* 폴더 모달 */
+  $("#fmOpenAll").onclick=()=>openFolderUrls(openFolderId);
+  $("#fmAddApp").onclick=()=>openAppModal(null,openFolderId||"");
 
-  // 날씨 켜지면 즉시 조회
-  $("#showWeatherToggle").addEventListener("change", e => {
-    if (e.target.checked) fetchWeather(true);
-  });
-  $("#weatherBox").addEventListener("click", () => fetchWeather(true));
+  /* 커브 */
+  $("#cVP").addEventListener("wheel",e=>{e.preventDefault();spin(e.deltaY>0?1:-1)},{passive:false});
+  $("#cVP").onmousemove=e=>{const r=$("#cVP").getBoundingClientRect();curvePtr=e.clientX-r.left;posCurve()};
+  $("#cVP").onmouseleave=()=>{curvePtr=null;posCurve()};
+  holdBtn($("#cL"),-1);holdBtn($("#cR"),1);
 
-  // 배경 적용
-  $("#applyBgBtn").addEventListener("click", () => {
-    const url = $("#bgImageUrl").value.trim();
-    if (url) { state.settings.bgImage = url; state.settings.bgType = "image"; }
-    state.settings.bgType = $("#bgTypeSelect").value;
-    state.settings.bgFit  = $("#bgFitSelect").value;
-    save(); applyUI(); applyBg();
-    toast("배경이 적용되었어요.");
-  });
+  /* 그리드 */
+  $("#gL").onclick=()=>gridPage(-1);
+  $("#gR").onclick=()=>gridPage(1);
+  swipe($("#gVP"),d=>gridPage(d==="left"?1:-1));
+  swipe($("#cVP"),d=>spin(d==="left"?1:-1),true);
 
-  // 배경 이미지 업로드
-  $("#bgImageUpload").addEventListener("change", async e => {
-    const f = e.target.files?.[0]; if (!f) return;
-    $("#bgFileName").textContent = f.name;
-    try {
-      state.settings.bgImage = await toDataURL(f, 1600, 1000);
-      state.settings.bgType  = "image";
-      save(); applyUI(); applyBg();
-      toast("배경이 저장되었어요.");
-    } catch { toast("이미지를 읽지 못했어요."); }
-    e.target.value = "";
-  });
+  /* 날씨 클릭 */
+  $("#weather").onclick=()=>fetchWeather(true);
 
-  // 초기화
-  $("#resetDataBtn").addEventListener("click", () => {
-    if (!confirm("모든 설정, 앱, 메모를 초기화할까요?")) return;
-    localStorage.removeItem(SK); location.reload();
-  });
-
-  // 앱 모달 — 세그먼트 컨트롤
-  bindSeg("entryTypeSeg",  "entryType",   onEntryTypeChange);
-  bindSeg("iconModeSeg",   "iconModeVal", onIconModeChange);
-
-  // 아이콘 업로드 파일명 표시
-  $("#appIconUpload").addEventListener("change", e => {
-    $("#iconFileName").textContent = e.target.files?.[0]?.name || "선택된 파일 없음";
-  });
-
-  // 앱 폼 제출
-  $("#appForm").addEventListener("submit", handleAppSubmit);
-
-  // 폴더 모달 버튼
-  $("#folderOpenAllBtn").addEventListener("click", () => openFolderAll(folderOpenId));
-  $("#folderAddAppBtn" ).addEventListener("click", () => openAppModal(null, folderOpenId || ""));
-
-  // 커브 휠/버튼/스와이프
-  $("#curveViewport").addEventListener("wheel", e => { e.preventDefault(); rotateCurve(e.deltaY > 0 ? 1 : -1); }, { passive:false });
-  bindHold($("#curveLeft"),  -1);
-  bindHold($("#curveRight"),  1);
-  bindSwipe($("#curveViewport"), dir => rotateCurve(dir === "l" ? 1 : -1), true);
-
-  // 커브 마우스 위치 (확대 효과)
-  $("#curveViewport").addEventListener("mousemove", e => {
-    const r = $("#curveViewport").getBoundingClientRect();
-    pointerX = e.clientX - r.left; pointerY = e.clientY - r.top;
-    positionTiles();
-  });
-  $("#curveViewport").addEventListener("mouseleave", () => { pointerX = null; positionTiles(); });
-
-  // 그리드 페이지
-  $("#gridLeft" ).addEventListener("click", () => changePage(-1));
-  $("#gridRight").addEventListener("click", () => changePage( 1));
-  bindSwipe($("#gridViewport"), dir => changePage(dir === "l" ? 1 : -1));
-
-  // 리사이즈
-  let rsTimer;
-  window.addEventListener("resize", () => {
-    clearTimeout(rsTimer);
-    rsTimer = setTimeout(() => {
-      if (threeCtx) resizeThree();
-      renderCurve(); renderGrid();
-      if (folderOpenId) renderFolder();
-    }, 80);
-  });
+  /* 리사이즈 */
+  let rt;window.onresize=()=>{clearTimeout(rt);rt=setTimeout(()=>{if(threeCtx)resizeThree();renderCurve();renderGrid();if(openFolderId)renderFolderContent()},80)};
 }
 
-// ── 세그먼트 컨트롤 ────────────────────────────────
-function bindSeg(groupId, hiddenId, onChange) {
-  const wrap = $(`#${groupId}`);
-  if (!wrap) return;
-  wrap.addEventListener("click", e => {
-    const btn = e.target.closest(".seg-btn"); if (!btn) return;
-    $$(".seg-btn", wrap).forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    $(`#${hiddenId}`).value = btn.dataset.val;
-    if (onChange) onChange(btn.dataset.val);
-  });
-}
-function segSet(groupId, hiddenId, val) {
-  const wrap = $(`#${groupId}`); if (!wrap) return;
-  $$(".seg-btn", wrap).forEach(b => {
-    b.classList.toggle("active", b.dataset.val === val);
-  });
-  $(`#${hiddenId}`).value = val;
-}
-
-// ── 앱 모달 폼 변화 ────────────────────────────────
-function onEntryTypeChange(val) {
-  const isApp = val === "app";
-  $("#appOnlyFields").classList.toggle("hidden", !isApp);
-  $("#folderOnlyFields").classList.toggle("hidden", isApp);
-}
-function onIconModeChange(val) {
-  $("#iconLinkField").style.display   = val === "link"   ? "" : "none";
-  $("#iconUploadField").style.display = val === "upload" ? "" : "none";
-}
-
-// ── 스와이프 ───────────────────────────────────────
-function bindSwipe(el, cb, skipTiles = false) {
-  let sx = null, sy = null;
-  el.addEventListener("pointerdown", e => {
-    if (skipTiles && e.target.closest(".app-tile")) return;
-    sx = e.clientX; sy = e.clientY;
-  });
-  el.addEventListener("pointerup", e => {
-    if (sx === null) return;
-    const dx = e.clientX - sx, dy = e.clientY - sy;
-    if (Math.abs(dx) > 46 && Math.abs(dx) > Math.abs(dy)) cb(dx < 0 ? "l" : "r");
-    sx = sy = null;
-  });
-  el.addEventListener("pointercancel", () => { sx = sy = null; });
-}
-
-// ── 길게 누르고 회전 ───────────────────────────────
-function bindHold(btn, d) {
-  let t = null;
-  const stop  = () => { clearInterval(t); t = null; };
-  const start = e => { e.preventDefault(); stop(); rotateCurve(d); t = setInterval(() => rotateCurve(d), 110); };
-  btn.addEventListener("mousedown",  start);
-  btn.addEventListener("touchstart", start, { passive:false });
-  btn.addEventListener("mouseup",   stop); btn.addEventListener("mouseleave", stop);
-  btn.addEventListener("touchend",  stop); btn.addEventListener("touchcancel", stop);
-  document.addEventListener("mouseup", stop); document.addEventListener("touchend", stop);
-}
-
-// ═══════════════════════════════════════════════════
-//  검색
-// ═══════════════════════════════════════════════════
-function doSearch() {
-  const raw = $("#searchInput").value.trim(); if (!raw) return;
-  const url = isURL(raw) ? normalizeURL(raw) : ENGINES[state.settings.searchEngine].q(raw);
-  if (!url) { toast("열 수 없는 주소입니다."); return; }
-  window.location.href = url;
-}
-function isURL(t) {
-  if (!t || t.includes(" ")) return false;
-  if (/^[a-zA-Z][\w+\-.]*:/.test(t)) return true;
-  return /^(localhost|[\w.-]+\.[a-z]{2,})(:\d+)?(\/.*)?$/i.test(t);
-}
-function normalizeURL(raw) {
-  const s = raw.trim(); if (!s) return "";
-  if (/^(javascript|data):/i.test(s)) return "";
-  if (/^[a-zA-Z][\w+\-.]*:/.test(s)) return s;
-  if (s.startsWith("//")) return `https:${s}`;
-  return `https://${s}`;
-}
-
-// ═══════════════════════════════════════════════════
-//  배경
-// ═══════════════════════════════════════════════════
-function applyBg() {
-  const s   = state.settings;
-  const useImg = s.bgType === "image" && !!s.bgImage;
-  const lay = $("#bgImageLayer");
-  if (useImg) {
-    lay.style.backgroundImage = `url("${s.bgImage}")`;
-    lay.style.backgroundSize  = s.bgFit === "contain" ? "contain" : s.bgFit === "stretch" ? "100% 100%" : "cover";
-    lay.style.opacity = "1";
-  } else {
-    lay.style.backgroundImage = "none";
-    lay.style.opacity = "0";
+/* ====== INTRO ====== */
+function doIntro(){
+  if(S.cfg.skipIntro){
+    $("#intro").classList.add("bye");
+    setTimeout(()=>$("#intro").style.display="none",500);
+    tryFocus();return;
   }
-  const three = $("#threeBg");
-  if (three) three.style.opacity = useImg ? "0" : "1";
+  $("#introMsg").textContent=S.cfg.welcome||"반가워요";
+  const skip=()=>{$("#intro").classList.add("bye");setTimeout(()=>$("#intro").style.display="none",500);tryFocus()};
+  $("#intro").onclick=skip;
+  setTimeout(skip,1200);
+}
+function tryFocus(){try{$("#sinput").focus({preventScroll:true})}catch{}}
+
+/* ====== SETTINGS UI ====== */
+function syncSettingsUI(){
+  $("#sLayout").value=S.cfg.layout;
+  $("#eng").value=S.cfg.engine;
+  $("#sEng").value=S.cfg.engine;
+  $("#sWelcome").value=S.cfg.welcome||"";
+  $("#tClock").checked=!!S.cfg.showClock;
+  $("#tWeather").checked=!!S.cfg.showWeather;
+  $("#tSkipIntro").checked=!!S.cfg.skipIntro;
+  $("#tMouse3d").checked=S.cfg.mouseEffect!==false;
+  $("#sBgType").value=S.cfg.bgType;
+  $("#sBgUrl").value=S.cfg.bgImage&&!S.cfg.bgImage.startsWith("data:")?S.cfg.bgImage:"";
+  $("#sBgFit").value=S.cfg.bgFit;
 }
 
-// ═══════════════════════════════════════════════════
-//  Three.js 배경
-// ═══════════════════════════════════════════════════
-function initThreeBg() {
-  const canvas = $("#threeBg");
-  const W = window.innerWidth, H = window.innerHeight;
+/* ====== RENDER ALL ====== */
+function renderAll(){S.items=norm(S.items);renderWidgets();applyBg();switchLayout();renderCurve();renderGrid();renderNotes();if(openFolderId)renderFolderContent()}
+function renderWidgets(){
+  $("#clock").classList.toggle("hidden",!S.cfg.showClock);
+  $("#weather").classList.toggle("hidden",!S.cfg.showWeather);
+  updateClock();if(S.cfg.showWeather)fetchWeather();
+}
+function switchLayout(){
+  const c=S.cfg.layout==="curve";
+  $("#curveWrap").classList.toggle("hidden",!c);
+  $("#gridWrap").classList.toggle("hidden",c);
+}
 
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha:true, antialias:true, powerPreference:"low-power" });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.6));
-  renderer.setSize(W, H);
+/* ====== SEARCH ====== */
+function doSearch(){
+  const v=$("#sinput").value.trim();if(!v)return;
+  window.location.href=isUrl(v)?normUrl(v):ENGINES[S.cfg.engine].url(v);
+}
+function isUrl(t){if(!t||t.includes(" "))return false;if(/^[a-zA-Z][\w+\-.]*:/.test(t))return true;return/^(localhost|[\w.-]+\.[a-z]{2,})(:\d+)?(\/.*)?$/i.test(t)}
+function normUrl(s){if(!s)return"";if(/^(javascript|data):/i.test(s))return"";if(/^[a-zA-Z][\w+\-.]*:/.test(s))return s;if(s.startsWith("//"))return`https:${s}`;return`https://${s}`}
 
-  const scene  = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(55, W/H, 1, 1000);
-  camera.position.z = 120;
+/* ====== BACKGROUND ====== */
+function applyBg(){
+  const useImg=S.cfg.bgType==="image"&&!!S.cfg.bgImage;
+  const el=$("#bgImg");
+  if(useImg){
+    el.style.backgroundImage=`url("${S.cfg.bgImage}")`;el.style.opacity="1";
+    el.style.backgroundSize=S.cfg.bgFit==="contain"?"contain":S.cfg.bgFit==="stretch"?"100% 100%":"cover";
+  }else{el.style.backgroundImage="none";el.style.opacity="0"}
+  $("#threeBg").style.opacity=useImg?"0":"1";
+}
 
-  // 별 파티클
-  const cnt = 700;
-  const pos = new Float32Array(cnt * 3);
-  for (let i = 0; i < cnt; i++) {
-    pos[i*3]   = (Math.random()-.5)*260;
-    pos[i*3+1] = (Math.random()-.5)*160;
-    pos[i*3+2] = (Math.random()-.5)*180;
-  }
-  const geo  = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  const mat  = new THREE.PointsMaterial({ color:0xffffff, size:1.5, transparent:true, opacity:.7 });
-  const pts  = new THREE.Points(geo, mat);
+/* ====== THREE.JS ====== */
+function initThree(){
+  const box=$("#threeBg");
+  const scene=new THREE.Scene();
+  const cam=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,1,1000);
+  cam.position.z=120;
+  const ren=new THREE.WebGLRenderer({alpha:true,antialias:true});
+  ren.setPixelRatio(Math.min(devicePixelRatio||1,1.6));
+  ren.setSize(innerWidth,innerHeight);
+  box.appendChild(ren.domElement);
+
+  const geo=new THREE.BufferGeometry();
+  const N=800,pos=new Float32Array(N*3);
+  for(let i=0;i<N;i++){pos[i*3]=(Math.random()-.5)*260;pos[i*3+1]=(Math.random()-.5)*160;pos[i*3+2]=(Math.random()-.5)*180}
+  geo.setAttribute("position",new THREE.BufferAttribute(pos,3));
+  const pts=new THREE.Points(geo,new THREE.PointsMaterial({color:0xffffff,size:1.6,transparent:true,opacity:.68}));
   scene.add(pts);
 
-  // 링
-  const ringGeo = new THREE.TorusGeometry(32, .24, 10, 100);
-  const ringMat = new THREE.MeshBasicMaterial({ color:0x9d7cff, transparent:true, opacity:.1 });
-  const ring    = new THREE.Mesh(ringGeo, ringMat);
-  ring.rotation.x = 1.1;
-  scene.add(ring);
+  const ring=new THREE.Mesh(
+    new THREE.TorusGeometry(34,.28,12,120),
+    new THREE.MeshBasicMaterial({color:0x8d7cff,transparent:true,opacity:.1})
+  );
+  ring.rotation.x=1.2;scene.add(ring);
 
-  // 마우스 타겟
-  let mx = 0, my = 0, tx = 0, ty = 0;
-  document.addEventListener("mousemove", e => {
-    mx = (e.clientX / window.innerWidth  - .5) * 2;
-    my = (e.clientY / window.innerHeight - .5) * 2;
+  /* 마우스 추적 */
+  let mx=0,my=0;
+  window.addEventListener("mousemove",e=>{
+    mx=(e.clientX/innerWidth-.5)*2;
+    my=(e.clientY/innerHeight-.5)*2;
   });
 
-  threeCtx = { renderer, scene, camera, pts, ring };
+  threeCtx={scene,cam,ren,pts,ring,mx:()=>mx,my:()=>my};
 
-  (function animate() {
-    requestAnimationFrame(animate);
-    pts.rotation.y  += .0008;
-    pts.rotation.x  += .00022;
-    ring.rotation.z += .0018;
-
-    if (state.settings.threeMouseFx) {
-      tx += (mx - tx) * .04;
-      ty += (my - ty) * .04;
-      camera.position.x += (tx * 10 - camera.position.x) * .06;
-      camera.position.y += (-ty * 8  - camera.position.y) * .06;
-    } else {
-      camera.position.x += (-camera.position.x) * .04;
-      camera.position.y += (-camera.position.y) * .04;
+  (function anim(){
+    if(!threeCtx)return;
+    pts.rotation.y+=.0009;pts.rotation.x+=.00025;ring.rotation.z+=.002;
+    if(S.cfg.mouseEffect!==false){
+      cam.position.x+=(mx*18-cam.position.x)*.035;
+      cam.position.y+=(-my*12-cam.position.y)*.035;
+      cam.lookAt(0,0,0);
+      ring.rotation.x=1.2+my*.06;
+      ring.rotation.y=mx*.04;
+    }else{
+      cam.position.x+=(0-cam.position.x)*.05;
+      cam.position.y+=(0-cam.position.y)*.05;
+      cam.lookAt(0,0,0);
     }
-    camera.lookAt(scene.position);
-    renderer.render(scene, camera);
+    ren.render(scene,cam);requestAnimationFrame(anim);
   })();
 }
-function resizeThree() {
-  const { renderer, camera } = threeCtx;
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
+function resizeThree(){if(!threeCtx)return;threeCtx.ren.setSize(innerWidth,innerHeight);threeCtx.cam.aspect=innerWidth/innerHeight;threeCtx.cam.updateProjectionMatrix()}
+
+/* ====== CURVE ====== */
+function renderCurve(){
+  const t=$("#cTrack");t.innerHTML="";
+  if(!S.items.length){t.innerHTML=`<div class="empty-s" style="position:absolute;left:50%;top:46%;transform:translate(-50%,-50%)">앱을 추가해보세요</div>`;return}
+  S.ci=((S.ci%S.items.length)+S.items.length)%S.items.length;
+  S.items.forEach(it=>t.appendChild(mkTile(it,"","curve")));
+  requestAnimationFrame(posCurve);
 }
 
-// ═══════════════════════════════════════════════════
-//  레이아웃 전환
-// ═══════════════════════════════════════════════════
-function renderLayout() {
-  const curve = state.settings.layout === "curve";
-  $("#curveSection").classList.toggle("hidden",  !curve);
-  $("#gridSection" ).classList.toggle("hidden",   curve);
-}
+function circOff(i,c,n){let d=i-c;if(d>n/2)d-=n;if(d<-n/2)d+=n;return d}
 
-// ═══════════════════════════════════════════════════
-//  커브 다이얼
-// ═══════════════════════════════════════════════════
-function renderCurve() {
-  const track = $("#curveTrack");
-  track.innerHTML = "";
-  if (!state.items.length) {
-    const e = Object.assign(document.createElement("div"),
-      { className:"emptyState", textContent:"앱을 추가해보세요." });
-    Object.assign(e.style, { position:"absolute", left:"50%", top:"42%", transform:"translate(-50%,-50%)" });
-    track.appendChild(e); return;
+function posCurve(){
+  const vp=$("#cVP"),tiles=$$("#cTrack .ctile");if(!tiles.length)return;
+  const n=tiles.length,w=vp.clientWidth,h=vp.clientHeight;
+  const cx=w/2,by=Math.min(120,h*.36),sp=Math.min(148,w*.17);
+  tiles.forEach((el,i)=>{
+    const off=circOff(i,S.ci,n);
+    const x=cx+off*sp, y=by+Math.pow(Math.abs(off),1.5)*16;
+    let sc=Math.max(.55,1-Math.abs(off)*.09);
+    if(curvePtr!==null){const d=Math.abs(curvePtr-x);sc+=Math.max(0,.17-d/(w*2.4))}
+    const rot=off*-3.5, op=Math.max(.22,1-Math.abs(off)*.17);
+    el.style.transform=`translate(-50%,-50%) translate(${x}px,${y}px) rotate(${rot}deg) scale(${sc})`;
+    el.style.opacity=op;el.style.zIndex=String(100-Math.abs(Math.round(off)));
+  });
+}
+function spin(d){if(S.items.length<2)return;S.ci=(S.ci+d+S.items.length)%S.items.length;save();posCurve()}
+
+/* ====== GRID ====== */
+function renderGrid(){
+  const t=$("#gTrack");t.innerHTML="";
+  const ps=innerWidth<720?6:8, tot=S.items.length, pc=Math.max(1,Math.ceil(Math.max(tot,1)/ps));
+  S.gp=clamp(S.gp,0,pc-1);
+  for(let p=0;p<pc;p++){
+    const pg=document.createElement("div");pg.className="gpage";
+    const sl=S.items.slice(p*ps,(p+1)*ps);
+    if(!sl.length){pg.innerHTML=`<div class="empty-s">앱을 추가해보세요</div>`}
+    else sl.forEach(it=>pg.appendChild(mkTile(it,"","grid")));
+    t.appendChild(pg);
   }
-  const n = state.items.length;
-  state.carouselIdx = ((state.carouselIdx % n) + n) % n;
-  state.items.forEach(it => track.appendChild(makeTile(it, "", "curve")));
-  requestAnimationFrame(positionTiles);
+  t.style.transform=`translateX(calc(-100% * ${S.gp} / ${pc}))`;
+  $("#gLabel").textContent=`${S.gp+1} / ${pc}`;
+}
+function gridPage(d){
+  const ps=innerWidth<720?6:8,pc=Math.max(1,Math.ceil(Math.max(S.items.length,1)/ps));
+  S.gp=clamp(S.gp+d,0,pc-1);save();renderGrid();
 }
 
-function circOff(idx, center, total) {
-  let d = idx - center;
-  if (d >  total/2) d -= total;
-  if (d < -total/2) d += total;
-  return d;
-}
+/* ====== TILE ====== */
+function mkTile(item,pid="",mode="grid"){
+  const el=document.createElement("div");
+  el.className=`tile ${mode==="curve"?"ctile":"ltile"}`;
+  el.dataset.id=item.id;el.dataset.pid=pid;el.dataset.kind=item.kind;
 
-function positionTiles() {
-  const vp    = $("#curveViewport");
-  const tiles = $$(".curve-tile", vp);
-  if (!tiles.length) return;
+  const ic=document.createElement("div");ic.className="ticon";
+  if(item.kind==="folder") ic.appendChild(folderPrev(item));
+  else{const img=document.createElement("img");img.src=resolveIcon(item);img.alt=item.name;img.onerror=()=>img.src=FALLBACK_ICON;ic.appendChild(img)}
 
-  const total   = tiles.length;
-  const W       = vp.clientWidth;
-  const H       = vp.clientHeight;
-  const cx      = W / 2;
-  const baseY   = Math.min(120, H * .36);
-  const spacing = Math.min(148, W * .17);
+  const nm=document.createElement("div");nm.className="tname";nm.textContent=item.name;
+  const mr=document.createElement("button");mr.className="tmore";mr.type="button";mr.textContent="⋮";
+  const bd=document.createElement("div");bd.className="lbadge";bd.textContent="✨";bd.style.display=item.kind==="app"&&item.launchGroup?"inline-flex":"none";
 
-  tiles.forEach((tile, i) => {
-    const off    = circOff(i, state.carouselIdx, total);
-    const x      = cx + off * spacing;
-    const y      = baseY + Math.pow(Math.abs(off), 1.5) * 16;
-    const base   = Math.max(.56, 1 - Math.abs(off) * .088);
-    const rot    = off * -3.8;
-    const alpha  = Math.max(.22, 1 - Math.abs(off) * .17);
+  el.append(ic,nm,mr,bd);
 
-    let boost = 0;
-    if (pointerX !== null) {
-      const dist = Math.abs(pointerX - x);
-      boost = Math.max(0, .17 - dist / (W * 2.6));
-    }
-
-    tile.style.transform = `translate(-50%,-50%) translate(${x}px,${y}px) rotate(${rot}deg) scale(${base + boost})`;
-    tile.style.opacity   = String(alpha);
-    tile.style.zIndex    = String(100 - Math.abs(Math.round(off)));
+  el.addEventListener("click",e=>{
+    if(Date.now()<ignoreClick)return;if(e.target.closest(".tmore"))return;
+    item.kind==="folder"?openFolder(item.id):openApp(item.url);
   });
+  mr.addEventListener("click",e=>{e.stopPropagation();showQM(item.id,e.clientX,e.clientY)});
+  attachDrag(el,item.id);
+  return el;
 }
 
-function rotateCurve(d) {
-  if (state.items.length < 2) return;
-  state.carouselIdx = (state.carouselIdx + d + state.items.length) % state.items.length;
-  save(); positionTiles();
+function folderPrev(f){
+  const w=document.createElement("div"),sl=(f.items||[]).slice(0,4);
+  if(!sl.length){w.className="fprev femoji";w.textContent=f.emoji||"🪄";return w}
+  w.className="fprev";
+  sl.forEach(c=>{const s=document.createElement("span");s.className="micon";const i=document.createElement("img");i.src=resolveIcon(c);i.onerror=()=>i.src=FALLBACK_ICON;s.appendChild(i);w.appendChild(s)});
+  for(let i=sl.length;i<4;i++){const s=document.createElement("span");s.className="micon empty";w.appendChild(s)}
+  return w;
 }
 
-// ═══════════════════════════════════════════════════
-//  그리드
-// ═══════════════════════════════════════════════════
-const PG_SIZE = () => window.innerWidth < 720 ? 6 : 8;
+function resolveIcon(it){
+  if(!it||it.kind!=="app")return FALLBACK_ICON;
+  if((it.iconMode==="link"||it.iconMode==="upload")&&it.icon)return it.icon;
+  if(it.icon)return it.icon;
+  try{const u=new URL(normUrl(it.url));if(!/^https?:$/.test(u.protocol))return FALLBACK_ICON;return`https://www.google.com/s2/favicons?domain=${encodeURIComponent(u.hostname)}&sz=128`}catch{return FALLBACK_ICON}
+}
 
-function renderGrid() {
-  const track = $("#gridTrack");
-  track.innerHTML = "";
-  const pg    = PG_SIZE();
-  const total = state.items.length;
-  const pages = Math.max(1, Math.ceil(Math.max(total, 1) / pg));
-  state.gridPage = clamp(state.gridPage, 0, pages - 1);
+function openApp(raw){const u=normUrl(raw||"");if(!u){toast("열 수 없는 URL");return}window.location.href=u}
 
-  for (let p = 0; p < pages; p++) {
-    const page  = document.createElement("div");
-    page.className = "grid-page";
-    const slice = state.items.slice(p * pg, (p+1) * pg);
-    if (!slice.length) {
-      page.innerHTML = `<div class="emptyState">앱을 추가해보세요.</div>`;
-    } else {
-      slice.forEach(it => page.appendChild(makeTile(it, "", "grid")));
-    }
-    track.appendChild(page);
+/* ====== LAUNCH ALL (모음) ====== */
+function launchAll(){
+  const urls=collectLaunch(S.items,[]);
+  if(!urls.length){toast("모음에 포함된 앱이 없어요");return}
+  openMulti(urls);
+}
+function collectLaunch(items,out){
+  items.forEach(it=>{
+    if(it.kind==="app"&&it.launchGroup){const u=normUrl(it.url);if(u)out.push(u)}
+    if(it.kind==="folder"&&it.items?.length)collectLaunch(it.items,out);
+  });return out;
+}
+function openMulti(urls){
+  let blocked=0;
+  urls.forEach(u=>{const w=window.open(u,"_blank","noopener");if(!w)blocked++});
+  if(blocked)toast(`${urls.length-blocked}개 열림, ${blocked}개 차단됨 — 팝업 허용 필요`);
+  else toast(`${urls.length}개 앱 열림`);
+}
+
+/* ====== QUICK MENU ====== */
+function showQM(id,x,y){
+  const f=findItem(id);if(!f)return;const it=f.item;
+  const m=$("#qmenu");m.innerHTML="";
+  const add=(l,fn,d)=>{const b=document.createElement("button");b.type="button";b.textContent=l;if(d)b.classList.add("danger");b.onclick=()=>{hideQM();fn()};m.appendChild(b)};
+  if(it.kind==="app"){
+    add("열기",()=>openApp(it.url));
+    add("수정",()=>openAppModal(it.id));
+    add(it.launchGroup?"모음에서 제외":"모음에 포함",()=>{it.launchGroup=!it.launchGroup;save();renderAll()});
+    add("삭제",()=>delItem(it.id),true);
+  }else{
+    add("폴더 열기",()=>openFolder(it.id));
+    add("폴더 수정",()=>openAppModal(it.id));
+    add("앱 추가",()=>openAppModal(null,it.id));
+    add("전체 열기",()=>openFolderUrls(it.id));
+    add("삭제",()=>delItem(it.id),true);
   }
-
-  track.style.transform = `translateX(calc(-100% * ${state.gridPage} / ${pages}))`;
-  $("#gridPageLabel").textContent = `${state.gridPage+1} / ${pages}`;
+  m.classList.remove("hidden");
+  requestAnimationFrame(()=>{const r=m.getBoundingClientRect();m.style.left=`${clamp(x,10,innerWidth-r.width-10)}px`;m.style.top=`${clamp(y,10,innerHeight-r.height-10)}px`});
 }
+function hideQM(){$("#qmenu").classList.add("hidden")}
 
-function changePage(d) {
-  const pg    = PG_SIZE();
-  const pages = Math.max(1, Math.ceil(Math.max(state.items.length, 1) / pg));
-  state.gridPage = clamp(state.gridPage + d, 0, pages - 1);
-  save(); renderGrid();
+/* ====== OVERLAY ====== */
+function showOv(el){if(!el)return;el.classList.remove("hidden");requestAnimationFrame(()=>{el.classList.add("open");refreshBD()})}
+function closeOv(el){if(!el||el.classList.contains("hidden"))return;el.classList.remove("open");setTimeout(()=>{el.classList.add("hidden");if(el.id==="appModal")editId=null;if(el.id==="folderModal")openFolderId=null;refreshBD()},180);refreshBD()}
+function refreshBD(){const on=[$("#setPanel"),$("#appModal"),$("#folderModal")].some(e=>!e.classList.contains("hidden"));$("#backdrop").classList.toggle("hidden",!on);requestAnimationFrame(()=>$("#backdrop").classList.toggle("show",on))}
+function closeAll(){hideQM();closeOv($("#setPanel"));closeOv($("#appModal"));closeOv($("#folderModal"))}
+
+/* ====== APP MODAL ====== */
+function fillParent(sel=""){
+  const s=$("#fParent");s.innerHTML=`<option value="">메인 홈</option>`;
+  S.items.filter(x=>x.kind==="folder").forEach(f=>{const o=document.createElement("option");o.value=f.id;o.textContent=`📁 ${f.name}`;s.appendChild(o)});
+  s.value=sel||"";
 }
-
-// ═══════════════════════════════════════════════════
-//  타일 생성
-// ═══════════════════════════════════════════════════
-function makeTile(item, parentId = "", mode = "grid") {
-  const tile = document.createElement("div");
-  tile.className = `app-tile ${mode === "curve" ? "curve-tile" : "list-tile"}`;
-  tile.dataset.id = item.id;
-  tile.dataset.parentId = parentId;
-  tile.dataset.kind = item.kind;
-
-  // 아이콘
-  const iconBox = document.createElement("div");
-  iconBox.className = "tile-icon";
-  if (item.kind === "folder") {
-    iconBox.appendChild(buildFolderPreview(item));
-  } else {
-    const img = document.createElement("img");
-    img.src = resolveIcon(item); img.alt = item.name;
-    img.loading = "lazy";
-    img.onerror = () => { img.src = MAGIC_ICON; };
-    iconBox.appendChild(img);
-  }
-
-  // 이름
-  const nm = document.createElement("div");
-  nm.className = "tile-name"; nm.textContent = item.name;
-
-  // 더보기
-  const more = document.createElement("button");
-  more.className = "tile-more"; more.type = "button"; more.textContent = "⋮";
-
-  // 모음 뱃지
-  const badge = document.createElement("div");
-  badge.className = "launch-badge"; badge.textContent = "✨";
-  badge.style.display = (item.kind === "app" && item.launchGroup) ? "grid" : "none";
-
-  tile.append(iconBox, nm, more, badge);
-
-  tile.addEventListener("click", e => {
-    if (Date.now() < ignoreClickTil) return;
-    if (e.target.closest(".tile-more")) return;
-    if (item.kind === "folder") openFolder(item.id);
-    else openApp(item.url);
-  });
-  more.addEventListener("click", e => { e.stopPropagation(); showQM(item.id, e.clientX, e.clientY); });
-  attachDrag(tile, item.id);
-
-  return tile;
+function openAppModal(id=null,pHint=""){
+  editId=id;const f=id?findItem(id):null;const it=f?.item||null;
+  $("#amTitle").textContent=it?"항목 수정":"앱 / 폴더 추가";
+  fillParent(f?.parentId||pHint||"");
+  $("#fType").value=it?.kind||"app";$("#fType").disabled=!!it;
+  $("#fName").value=it?.name||"";
+  $("#fUrl").value=it?.url||"";
+  $("#fIconMode").value=it?.iconMode||"auto";
+  $("#fIconUrl").value=it?.iconMode==="link"?it.icon||"":"";
+  $("#fIconFile").value="";
+  $("#fLaunch").checked=!!it?.launchGroup;
+  $("#fEmoji").value=it?.emoji||"🪄";
+  toggleTypeFields();updateIconUI();showOv($("#appModal"));
 }
+function toggleTypeFields(){const a=$("#fType").value==="app";$("#appFields").classList.toggle("hidden",!a);$("#folderFields").classList.toggle("hidden",a);$("#fUrl").required=a}
+function updateIconUI(){const m=$("#fIconMode").value;$("#fIconUrl").disabled=m!=="link";$("#fIconFile").disabled=m!=="upload"}
 
-function buildFolderPreview(folder) {
-  const wrap  = document.createElement("div");
-  const items = (folder.items || []).slice(0, 4);
-  if (!items.length) {
-    wrap.className = "folder-preview solo";
-    wrap.textContent = folder.emoji || "🪄"; return wrap;
-  }
-  wrap.className = "folder-preview";
-  items.forEach(ch => {
-    const s = document.createElement("span"); s.className = "mini-icon";
-    const img = document.createElement("img"); img.src = resolveIcon(ch); img.alt = ch.name;
-    img.onerror = () => { img.src = MAGIC_ICON; };
-    s.appendChild(img); wrap.appendChild(s);
-  });
-  for (let i = items.length; i < 4; i++) {
-    const s = document.createElement("span"); s.className = "mini-icon empty"; wrap.appendChild(s);
-  }
-  return wrap;
-}
-
-function resolveIcon(item) {
-  if (!item || item.kind !== "app") return MAGIC_ICON;
-  if ((item.iconMode === "link" || item.iconMode === "upload") && item.icon) return item.icon;
-  if (item.icon) return item.icon;
-  try {
-    const u = new URL(normalizeURL(item.url));
-    if (!/^https?:/.test(u.protocol)) return MAGIC_ICON;
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(u.hostname)}&sz=128`;
-  } catch { return MAGIC_ICON; }
-}
-
-// ═══════════════════════════════════════════════════
-//  앱 열기
-// ═══════════════════════════════════════════════════
-function openApp(rawUrl) {
-  const url = normalizeURL(rawUrl || "");
-  if (!url) { toast("열 수 없는 URL입니다."); return; }
-  window.location.href = url;
-}
-
-// ═══════════════════════════════════════════════════
-//  모음 열기 (수정된 핵심 부분)
-// ═══════════════════════════════════════════════════
-function collectGroup(items, out = []) {
-  items.forEach(it => {
-    if (it.kind === "app" && it.launchGroup) {
-      const url = normalizeURL(it.url);
-      if (url) out.push(url);
-    }
-    if (it.kind === "folder" && it.items?.length) collectGroup(it.items, out);
-  });
-  return out;
-}
-
-function openLaunchGroup() {
-  const urls = collectGroup(state.items);
-  if (!urls.length) { toast("모음에 포함된 앱이 없어요. 앱 수정 → ✨ 모음에 포함 체크!"); return; }
-
-  // 첫 번째: 현재 탭에서 이동
-  // 나머지: <a> 태그 클릭 방식 → 팝업 차단 우회
-  urls.forEach((url, i) => {
-    if (i === 0) {
-      window.location.href = url;
-    } else {
-      const a = document.createElement("a");
-      a.href = url; a.target = "_blank"; a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => a.remove(), 500);
-    }
-  });
-}
-
-function openFolderAll(folderId) {
-  const folder = getFolderById(folderId);
-  if (!folder?.items?.length) { toast("폴더가 비어 있어요."); return; }
-  const urls = folder.items
-    .filter(it => it.kind === "app")
-    .map(it => normalizeURL(it.url))
-    .filter(Boolean);
-  if (!urls.length) { toast("열 수 있는 앱 URL이 없어요."); return; }
-
-  urls.forEach((url, i) => {
-    if (i === 0) {
-      window.location.href = url;
-    } else {
-      const a = document.createElement("a");
-      a.href = url; a.target = "_blank"; a.rel = "noopener";
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => a.remove(), 500);
-    }
-  });
-}
-
-// ═══════════════════════════════════════════════════
-//  퀵 메뉴
-// ═══════════════════════════════════════════════════
-function showQM(itemId, x, y) {
-  const found = findItem(itemId); if (!found) return;
-  const { item } = found;
-  const qm = $("#quickMenu");
-  qm.innerHTML = "";
-
-  const add = (label, fn, danger = false) => {
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.textContent = label;
-    if (danger) btn.classList.add("danger");
-    btn.addEventListener("click", () => { hideQM(); fn(); });
-    qm.appendChild(btn);
-  };
-  const sep = () => { const d = document.createElement("div"); d.className = "qm-sep"; qm.appendChild(d); };
-
-  if (item.kind === "app") {
-    add("🔗 열기", () => openApp(item.url));
-    add("✏️ 수정", () => openAppModal(item.id));
-    sep();
-    add(item.launchGroup ? "✨ 모음에서 제외" : "✨ 모음에 추가", () => {
-      item.launchGroup = !item.launchGroup; save(); renderAll();
-    });
-    sep();
-    add("🗑 삭제", () => deleteItem(item.id), true);
-  } else {
-    add("📂 폴더 열기",    () => openFolder(item.id));
-    add("✏️ 폴더 수정",    () => openAppModal(item.id));
-    add("➕ 앱 추가",       () => openAppModal(null, item.id));
-    add("🚀 전체 열기",    () => openFolderAll(item.id));
-    sep();
-    add("🗑 폴더 삭제",    () => deleteItem(item.id), true);
-  }
-
-  qm.classList.remove("hidden");
-  requestAnimationFrame(() => {
-    const r = qm.getBoundingClientRect();
-    qm.style.left = `${clamp(x, 12, window.innerWidth  - r.width  - 12)}px`;
-    qm.style.top  = `${clamp(y, 12, window.innerHeight - r.height - 12)}px`;
-  });
-}
-function hideQM() { $("#quickMenu").classList.add("hidden"); }
-
-// ═══════════════════════════════════════════════════
-//  패널/모달 열고닫기
-// ═══════════════════════════════════════════════════
-function openPanel(el) {
-  if (!el) return;
-  el.classList.remove("hidden");
-  requestAnimationFrame(() => { el.classList.add("open"); refreshBackdrop(); });
-}
-function closeLayer(el) {
-  if (!el || el.classList.contains("hidden")) return;
-  el.classList.remove("open");
-  setTimeout(() => {
-    el.classList.add("hidden");
-    if (el.id === "appModal")    curEditId    = null;
-    if (el.id === "folderModal") folderOpenId = null;
-    refreshBackdrop();
-  }, 180);
-  refreshBackdrop();
-}
-function closeAll() {
-  hideQM();
-  closeLayer($("#settingsPanel"));
-  closeLayer($("#appModal"));
-  closeLayer($("#folderModal"));
-}
-function refreshBackdrop() {
-  const open = [$("#settingsPanel"), $("#appModal"), $("#folderModal")]
-    .some(el => !el.classList.contains("hidden"));
-  $("#modalBackdrop").classList.toggle("hidden", !open);
-  requestAnimationFrame(() => $("#modalBackdrop").classList.toggle("show", open));
-}
-
-// ═══════════════════════════════════════════════════
-//  앱 모달
-// ═══════════════════════════════════════════════════
-function openAppModal(itemId = null, parentHint = "") {
-  curEditId = itemId;
-  const found = itemId ? findItem(itemId) : null;
-  const it    = found?.item || null;
-
-  $("#appModalTitle").textContent = it ? "항목 수정" : "앱 / 폴더 추가";
-
-  // 세그먼트 초기화
-  const type = it?.kind || "app";
-  segSet("entryTypeSeg", "entryType", type);
-  onEntryTypeChange(type);
-
-  // 앱 필드
-  $("#appName" ).value = it?.name  || "";
-  $("#appUrl"  ).value = it?.url   || "";
-  $("#appIconUrl").value = it?.iconMode === "link" ? it.icon || "" : "";
-  $("#iconFileName").textContent = "선택된 파일 없음";
-  const im = it?.iconMode || "auto";
-  segSet("iconModeSeg", "iconModeVal", im);
-  onIconModeChange(im);
-  $("#launchGroupToggle").checked = !!it?.launchGroup;
-
-  // 폴더 필드
-  $("#folderName" ).value = it?.name  || "";
-  $("#folderEmoji").value = it?.emoji || "🪄";
-
-  // 위치 선택
-  populateParentSel(found?.parentId || parentHint || "");
-
-  openPanel($("#appModal"));
-}
-
-function populateParentSel(selected = "") {
-  const sel = $("#parentSelect");
-  const flds = state.items.filter(it => it.kind === "folder");
-  sel.innerHTML = `<option value="">📱 메인 홈</option>`;
-  flds.forEach(f => {
-    const o = document.createElement("option");
-    o.value = f.id; o.textContent = `📁 ${f.name}`;
-    sel.appendChild(o);
-  });
-  sel.value = selected || "";
-}
-
-async function handleAppSubmit(e) {
+async function submitApp(e){
   e.preventDefault();
-  const type = $("#entryType").value;
-
-  if (type === "folder") {
-    const name  = $("#folderName").value.trim()  || "새 폴더";
-    const emoji = $("#folderEmoji").value.trim() || "🪄";
-    if (curEditId) {
-      const found = findItem(curEditId);
-      if (found && found.item.kind === "folder") { found.item.name = name; found.item.emoji = emoji; }
-    } else {
-      state.items.push({ id:uid("fld"), kind:"folder", name, emoji, items:[] });
-    }
-    save(); renderAll(); closeLayer($("#appModal")); return;
+  const tp=$("#fType").value, nm=$("#fName").value.trim()||(tp==="folder"?"새 폴더":"새 앱");
+  if(tp==="folder"){
+    if(editId){const f=findItem(editId);if(f&&f.item.kind==="folder"){f.item.name=nm;f.item.emoji=$("#fEmoji").value.trim()||"🪄"}}
+    else S.items.push({id:uid("f"),kind:"folder",name:nm,emoji:$("#fEmoji").value.trim()||"🪄",items:[]});
+    save();renderAll();closeOv($("#appModal"));return;
   }
+  const url=$("#fUrl").value.trim();if(!url){toast("URL을 입력하세요");return}
+  const im=$("#fIconMode").value;const f=editId?findItem(editId):null;let icon="";
+  if(im==="link")icon=$("#fIconUrl").value.trim()||(f?.item.iconMode==="link"?f.item.icon:"");
+  else if(im==="upload"){const file=$("#fIconFile").files?.[0];icon=file?await shrink(file,256,256,true):(f?.item.iconMode==="upload"?f.item.icon:"")}
+  const obj={id:f?.item.id||uid("a"),kind:"app",name:nm,url,iconMode:im,icon,launchGroup:!!$("#fLaunch").checked};
+  const tp2=$("#fParent").value||"";
+  if(f){if(f.parentId===tp2)f.parent.splice(f.index,1,obj);else{f.parent.splice(f.index,1);putIn(tp2,obj)}}
+  else putIn(tp2,obj);
+  save();renderAll();if(openFolderId)renderFolderContent();closeOv($("#appModal"));
+}
+function putIn(pid,obj){if(!pid){S.items.push(obj);return}const f=getFolder(pid);f?f.items.push(obj):S.items.push(obj)}
 
-  // 앱
-  const name = $("#appName").value.trim() || "새 앱";
-  const url  = $("#appUrl" ).value.trim();
-  if (!url) { toast("URL을 입력해주세요."); return; }
-
-  const iconMode = $("#iconModeVal").value;
-  const found    = curEditId ? findItem(curEditId) : null;
-  let icon = "";
-
-  if (iconMode === "auto")   icon = "";
-  else if (iconMode === "link")   icon = $("#appIconUrl").value.trim() || (found?.item.iconMode==="link" ? found.item.icon : "");
-  else if (iconMode === "upload") {
-    const f = $("#appIconUpload").files?.[0];
-    icon = f ? await toDataURL(f, 256, 256) : (found?.item.iconMode==="upload" ? found.item.icon : "");
-  }
-
-  const obj = {
-    id: found?.item.id || uid("app"),
-    kind:"app", name, url, iconMode, icon,
-    launchGroup: !!$("#launchGroupToggle").checked,
-  };
-
-  const targetParent = $("#parentSelect").value || "";
-
-  if (found) {
-    if (found.parentId === targetParent) found.parent.splice(found.index, 1, obj);
-    else { found.parent.splice(found.index, 1); insertApp(targetParent, obj); }
-  } else {
-    insertApp(targetParent, obj);
-  }
-
-  save(); renderAll();
-  if (folderOpenId) renderFolder();
-  closeLayer($("#appModal"));
+/* ====== DATA HELPERS ====== */
+function getFolder(id){return S.items.find(x=>x.kind==="folder"&&x.id===id)||null}
+function findItem(id){
+  for(let i=0;i<S.items.length;i++){
+    if(S.items[i].id===id)return{item:S.items[i],parent:S.items,parentId:"",index:i};
+    if(S.items[i].kind==="folder"){const a=S.items[i].items||[];const j=a.findIndex(c=>c.id===id);if(j>-1)return{item:a[j],parent:a,parentId:S.items[i].id,index:j}}
+  }return null;
+}
+function delItem(id){
+  const f=findItem(id);if(!f)return;
+  let msg="삭제할까요?";if(f.item.kind==="folder"&&f.item.items?.length)msg=`폴더와 내부 앱 ${f.item.items.length}개 삭제?`;
+  if(!confirm(msg))return;
+  f.parent.splice(f.index,1);save();renderAll();
+  if(openFolderId&&!getFolder(openFolderId))closeOv($("#folderModal"));
 }
 
-function insertApp(parentId, item) {
-  if (!parentId) { state.items.push(item); return; }
-  const f = getFolderById(parentId);
-  if (f) f.items.push(item); else state.items.push(item);
+/* ====== FOLDER ====== */
+function openFolder(id){openFolderId=id;renderFolderContent();showOv($("#folderModal"))}
+function renderFolderContent(){
+  const f=getFolder(openFolderId);if(!f){closeOv($("#folderModal"));return}
+  $("#fmTitle").textContent=f.name;const box=$("#fmApps");box.innerHTML="";
+  if(!f.items?.length){box.innerHTML=`<div class="empty-s">비어 있어요</div>`}
+  else f.items.forEach(it=>box.appendChild(mkTile(it,f.id,"folder")));
+  $("#fmOpenAll").disabled=!f.items?.length;
+}
+function openFolderUrls(fid){
+  const f=getFolder(fid);if(!f||!f.items?.length){toast("비어 있어요");return}
+  const urls=f.items.filter(x=>x.kind==="app").map(x=>normUrl(x.url)).filter(Boolean);
+  if(!urls.length){toast("열 수 있는 앱 없음");return}
+  openMulti(urls);
 }
 
-// ═══════════════════════════════════════════════════
-//  폴더
-// ═══════════════════════════════════════════════════
-function openFolder(id) {
-  folderOpenId = id; renderFolder(); openPanel($("#folderModal"));
-}
-function renderFolder() {
-  const f = getFolderById(folderOpenId);
-  if (!f) { closeLayer($("#folderModal")); return; }
-  $("#folderTitle").textContent = f.name;
-  const box = $("#folderApps"); box.innerHTML = "";
-  if (!f.items?.length) {
-    box.innerHTML = `<div class="emptyState" style="grid-column:1/-1">폴더가 비어 있어요.</div>`;
-  } else {
-    f.items.forEach(it => box.appendChild(makeTile(it, f.id, "folder")));
-  }
-  $("#folderOpenAllBtn").disabled = !f.items?.length;
-}
-function getFolderById(id) {
-  return state.items.find(it => it.kind === "folder" && it.id === id) || null;
-}
-
-// ═══════════════════════════════════════════════════
-//  아이템 검색/삭제
-// ═══════════════════════════════════════════════════
-function findItem(id) {
-  for (let i = 0; i < state.items.length; i++) {
-    const it = state.items[i];
-    if (it.id === id) return { item:it, parent:state.items, parentId:"", index:i };
-    if (it.kind === "folder") {
-      const arr = it.items || [];
-      const idx = arr.findIndex(c => c.id === id);
-      if (idx > -1) return { item:arr[idx], parent:arr, parentId:it.id, index:idx };
-    }
-  }
-  return null;
-}
-function deleteItem(id) {
-  const f = findItem(id); if (!f) return;
-  const msg = f.item.kind === "folder" && f.item.items?.length
-    ? `폴더와 내부 앱 ${f.item.items.length}개를 함께 삭제할까요?`
-    : "이 항목을 삭제할까요?";
-  if (!confirm(msg)) return;
-  f.parent.splice(f.index, 1);
-  save(); renderAll();
-  if (folderOpenId && !getFolderById(folderOpenId)) closeLayer($("#folderModal"));
-}
-
-// ═══════════════════════════════════════════════════
-//  드래그 & 드롭
-// ═══════════════════════════════════════════════════
-function attachDrag(tile, itemId) {
-  tile.addEventListener("pointerdown", e => {
-    if (e.button && e.button !== 0) return;
-    if (e.target.closest(".tile-more")) return;
-    const sx = e.clientX, sy = e.clientY;
-    let timer = null;
-    const abort = () => { clearTimeout(timer); rm(); };
-    const move  = ev => { if (Math.hypot(ev.clientX-sx, ev.clientY-sy)>9) abort(); };
-    const rm    = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup",   abort);
-      window.removeEventListener("pointercancel",abort);
-    };
-    timer = setTimeout(() => { rm(); startDrag(itemId, tile, sx, sy); }, 350);
-    window.addEventListener("pointermove",  move);
-    window.addEventListener("pointerup",    abort, { once:true });
-    window.addEventListener("pointercancel",abort, { once:true });
+/* ====== DRAG ====== */
+function attachDrag(el,id){
+  el.addEventListener("pointerdown",e=>{
+    if(e.button&&e.button!==0)return;if(e.target.closest(".tmore"))return;
+    const sx=e.clientX,sy=e.clientY;let tm;
+    const mv=ev=>{if(Math.hypot(ev.clientX-sx,ev.clientY-sy)>8){clearTimeout(tm);cl()}};
+    const cl=()=>{window.removeEventListener("pointermove",mv);window.removeEventListener("pointerup",up);window.removeEventListener("pointercancel",up)};
+    const up=()=>{clearTimeout(tm);cl()};
+    tm=setTimeout(()=>{cl();startDrag(id,el,sx,sy)},350);
+    window.addEventListener("pointermove",mv);window.addEventListener("pointerup",up,{once:true});window.addEventListener("pointercancel",up,{once:true});
   });
 }
-
-function startDrag(id, tile, x, y) {
-  ignoreClickTil = Date.now() + 600;
-  const r = tile.getBoundingClientRect();
-  const ghost = tile.cloneNode(true);
-  ghost.classList.add("drag-ghost");
-  ghost.style.width = `${r.width}px`; ghost.style.height = `${r.height}px`;
-  document.body.appendChild(ghost);
-  tile.classList.add("drag-source");
-  document.body.classList.add("dragging");
-  dragInfo = { id, el:tile, ghost, hover:null };
-  moveGhost(x, y);
-  window.addEventListener("pointermove", onDragMove);
-  window.addEventListener("pointerup",   endDrag, { once:true });
-  window.addEventListener("pointercancel",endDrag,{ once:true });
-  toast("길게 눌러 이동 중… 앱 위에 놓으면 폴더로 합칩니다.");
+function startDrag(id,el,x,y){
+  const f=findItem(id);if(!f)return;ignoreClick=Date.now()+600;
+  const r=el.getBoundingClientRect(),gh=el.cloneNode(true);
+  gh.classList.add("drag-ghost");gh.style.width=r.width+"px";gh.style.height=r.height+"px";
+  document.body.appendChild(gh);el.classList.add("drag-src");document.body.classList.add("dragging");
+  dragState={id,src:el,gh,hov:null};movGh(x,y);
+  window.addEventListener("pointermove",onDragMv);
+  window.addEventListener("pointerup",endDrag,{once:true});
+  window.addEventListener("pointercancel",endDrag,{once:true});
+  toast("길게 눌러 이동 중...");
 }
-function moveGhost(x, y) {
-  if (!dragInfo?.ghost) return;
-  dragInfo.ghost.style.left = `${x}px`; dragInfo.ghost.style.top = `${y}px`;
-}
-function clearHighlights() { $$(".drop-target,.combine-target").forEach(el => el.classList.remove("drop-target","combine-target")); }
+function movGh(x,y){if(dragState?.gh){dragState.gh.style.left=x+"px";dragState.gh.style.top=y+"px"}}
+function clrHL(){$$(".drop-t,.combine-t").forEach(e=>e.classList.remove("drop-t","combine-t"))}
+function nearCenter(r,x,y){return Math.hypot(x-(r.left+r.width/2),y-(r.top+r.height/2))<Math.min(r.width,r.height)*.24}
 
-function onDragMove(e) {
-  if (!dragInfo) return;
-  moveGhost(e.clientX, e.clientY);
-  clearHighlights();
-  const target = document.elementFromPoint(e.clientX, e.clientY)?.closest(".app-tile");
-  if (!target || target.dataset.id === dragInfo.id) { dragInfo.hover = null; return; }
-  const src = findItem(dragInfo.id), tgt = findItem(target.dataset.id);
-  if (!src || !tgt) { dragInfo.hover = null; return; }
-
-  let mode = null;
-  if (tgt.item.kind==="folder" && src.item.kind==="app" && src.parentId !== tgt.item.id) {
-    mode = "into-folder";
-  } else if (src.parent === tgt.parent) {
-    const r = target.getBoundingClientRect();
-    const cx = r.left + r.width/2, cy = r.top + r.height/2;
-    const near = Math.hypot(e.clientX-cx, e.clientY-cy) < Math.min(r.width,r.height)*.24;
-    if (!src.parentId && src.item.kind==="app" && tgt.item.kind==="app" && near)
-      mode = "make-folder";
-    else mode = "reorder";
+function onDragMv(e){
+  if(!dragState)return;movGh(e.clientX,e.clientY);clrHL();
+  const te=document.elementFromPoint(e.clientX,e.clientY)?.closest(".tile");
+  if(!te||te.dataset.id===dragState.id){dragState.hov=null;return}
+  const src=findItem(dragState.id),tgt=findItem(te.dataset.id);
+  if(!src||!tgt){dragState.hov=null;return}
+  let mode=null;
+  if(tgt.item.kind==="folder"&&src.item.kind==="app"&&src.parentId!==tgt.item.id)mode="into";
+  else if(src.parent===tgt.parent){
+    if(!src.parentId&&src.item.kind==="app"&&tgt.item.kind==="app"&&nearCenter(te.getBoundingClientRect(),e.clientX,e.clientY))mode="merge";
+    else mode="reorder";
   }
-
-  if (!mode) { dragInfo.hover = null; return; }
-  dragInfo.hover = { targetId: tgt.item.id, mode };
-  target.classList.add(mode==="reorder" ? "drop-target" : "combine-target");
+  if(!mode){dragState.hov=null;return}
+  dragState.hov={tid:tgt.item.id,mode};
+  te.classList.add(mode==="reorder"?"drop-t":"combine-t");
 }
 
-function endDrag() {
-  if (!dragInfo) return;
-  window.removeEventListener("pointermove", onDragMove);
-  clearHighlights();
-  document.body.classList.remove("dragging");
-  dragInfo.el?.classList.remove("drag-source");
-  dragInfo.ghost?.remove();
-  const { hover, id } = dragInfo; dragInfo = null;
-
-  if (!hover) { renderAll(); return; }
-  let ok = false;
-  if (hover.mode==="reorder")     ok = reorder(id, hover.targetId);
-  if (hover.mode==="into-folder") ok = intoFolder(id, hover.targetId);
-  if (hover.mode==="make-folder") ok = makeFolder(id, hover.targetId);
-  if (ok) { save(); renderAll(); if (folderOpenId) renderFolder(); }
+function endDrag(){
+  if(!dragState)return;window.removeEventListener("pointermove",onDragMv);clrHL();
+  document.body.classList.remove("dragging");dragState.src?.classList.remove("drag-src");dragState.gh?.remove();
+  const h=dragState.hov,sid=dragState.id;dragState=null;
+  if(!h){renderAll();return}
+  let ok=false;
+  if(h.mode==="reorder")ok=reorder(sid,h.tid);
+  else if(h.mode==="into")ok=moveToFolder(sid,h.tid);
+  else if(h.mode==="merge")ok=mergeFolder(sid,h.tid);
+  if(ok){save();renderAll();if(openFolderId)renderFolderContent()}
+}
+function reorder(a,b){
+  const fa=findItem(a),fb=findItem(b);if(!fa||!fb||fa.parent!==fb.parent)return false;
+  const arr=fa.parent,[mv]=arr.splice(fa.index,1);let ti=fb.index;if(fa.index<fb.index)ti--;arr.splice(ti,0,mv);return true;
+}
+function moveToFolder(aid,fid){
+  const s=findItem(aid),f=getFolder(fid);if(!s||!f||s.item.kind!=="app")return false;
+  const[mv]=s.parent.splice(s.index,1);f.items.push(mv);return true;
+}
+function mergeFolder(a,b){
+  const fa=findItem(a),fb=findItem(b);if(!fa||!fb||fa.parent!==fb.parent||fa.parentId||fb.parentId)return false;
+  if(fa.item.kind!=="app"||fb.item.kind!=="app")return false;
+  const arr=fa.parent,ids=new Set([a,b]),idx=Math.min(fa.index,fb.index);
+  const picked=arr.filter(x=>ids.has(x.id));
+  for(let i=arr.length-1;i>=0;i--)if(ids.has(arr[i].id))arr.splice(i,1);
+  arr.splice(idx,0,{id:uid("f"),kind:"folder",name:"새 폴더",emoji:"🪄",items:picked});return true;
 }
 
-function reorder(srcId, tgtId) {
-  const s = findItem(srcId), t = findItem(tgtId);
-  if (!s||!t||s.parent!==t.parent||s.index===t.index) return false;
-  const [m] = s.parent.splice(s.index, 1);
-  let ti = t.index; if (s.index < t.index) ti--;
-  s.parent.splice(ti, 0, m); return true;
+/* ====== NOTES ====== */
+function createNote(){
+  const cs=["#ffe78d","#ffd4ea","#d6ffb3","#cae8ff","#f0d2ff"];
+  S.notes.push({id:uid("n"),text:"새 메모",x:clamp(40+(S.notes.length*24)%240,12,innerWidth-230),y:clamp(120+(S.notes.length*18)%180,80,innerHeight-210),color:cs[S.notes.length%cs.length]});
+  save();renderNotes();
 }
-function intoFolder(appId, fldId) {
-  const s = findItem(appId), f = getFolderById(fldId);
-  if (!s||!f||s.item.kind!=="app"||s.parentId===fldId) return false;
-  const [m] = s.parent.splice(s.index, 1); f.items.push(m); return true;
-}
-function makeFolder(aId, bId) {
-  const a = findItem(aId), b = findItem(bId);
-  if (!a||!b||a.parent!==b.parent||a.parentId||b.parentId) return false;
-  if (a.item.kind!=="app"||b.item.kind!=="app") return false;
-  const arr = a.parent, ids = new Set([aId, bId]);
-  const fi  = Math.min(a.index, b.index);
-  const picked = arr.filter(it => ids.has(it.id));
-  for (let i = arr.length-1; i >= 0; i--) if (ids.has(arr[i].id)) arr.splice(i,1);
-  arr.splice(fi, 0, { id:uid("fld"), kind:"folder", name:"새 폴더", emoji:"🪄", items:picked });
-  return true;
-}
-
-// ═══════════════════════════════════════════════════
-//  메모
-// ═══════════════════════════════════════════════════
-function addNote() {
-  const colors = ["#ffe78d","#ffd4ea","#d6ffb3","#cae8ff","#f0d2ff","#ffd9b3"];
-  const n = state.notes.length;
-  state.notes.push({
-    id: uid("note"), text: "새 메모",
-    x: clamp(44 + (n*22)%220, 14, window.innerWidth  - 230),
-    y: clamp(120+ (n*18)%180, 90, window.innerHeight - 220),
-    color: colors[n % colors.length],
-  });
-  save(); renderNotes();
-}
-function renderNotes() {
-  const layer = $("#notesLayer"); layer.innerHTML = "";
-  state.notes.forEach(note => {
-    const el = document.createElement("div");
-    el.className = "note"; el.style.left = `${note.x}px`; el.style.top = `${note.y}px`;
-    el.style.background = note.color;
-
-    const bar = document.createElement("div"); bar.className = "note-bar";
-    bar.innerHTML = "<span>📝</span>";
-    const del = document.createElement("button"); del.type="button"; del.textContent="✕";
-    del.addEventListener("click", () => { state.notes = state.notes.filter(n=>n.id!==note.id); save(); renderNotes(); });
-    bar.appendChild(del);
-
-    const body = document.createElement("div");
-    body.className = "note-body"; body.contentEditable = "true"; body.spellcheck = false;
-    body.innerText = note.text || "";
-    body.addEventListener("input", () => { note.text = body.innerText; save(); });
-
-    bar.addEventListener("pointerdown", e => {
-      const r = el.getBoundingClientRect();
-      const ox = e.clientX - r.left, oy = e.clientY - r.top;
-      const move = ev => {
-        note.x = clamp(ev.clientX-ox, 8, window.innerWidth -r.width -8);
-        note.y = clamp(ev.clientY-oy, 8, window.innerHeight-r.height-8);
-        el.style.left = `${note.x}px`; el.style.top = `${note.y}px`;
-      };
-      const up = () => { window.removeEventListener("pointermove",move); save(); };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up, { once:true });
+function renderNotes(){
+  const lay=$("#notes");lay.innerHTML="";
+  S.notes.forEach(n=>{
+    const el=document.createElement("div");el.className="note";el.style.left=n.x+"px";el.style.top=n.y+"px";el.style.background=n.color;
+    const bar=document.createElement("div");bar.className="note-bar";bar.innerHTML="<span>메모</span>";
+    const del=document.createElement("button");del.type="button";del.textContent="✕";del.onclick=()=>{S.notes=S.notes.filter(z=>z.id!==n.id);save();renderNotes()};bar.appendChild(del);
+    const body=document.createElement("div");body.className="note-body";body.contentEditable="true";body.spellcheck=false;body.innerText=n.text||"";
+    body.oninput=()=>{n.text=body.innerText;save()};
+    bar.addEventListener("pointerdown",e=>{
+      const r=el.getBoundingClientRect(),ox=e.clientX-r.left,oy=e.clientY-r.top;
+      const mv=ev=>{n.x=clamp(ev.clientX-ox,6,innerWidth-r.width-6);n.y=clamp(ev.clientY-oy,6,innerHeight-r.height-6);el.style.left=n.x+"px";el.style.top=n.y+"px"};
+      const up=()=>{window.removeEventListener("pointermove",mv);save()};
+      window.addEventListener("pointermove",mv);window.addEventListener("pointerup",up,{once:true});
     });
-
-    el.append(bar, body); layer.appendChild(el);
+    el.append(bar,body);lay.appendChild(el);
   });
 }
 
-// ═══════════════════════════════════════════════════
-//  시계 / 날씨
-// ═══════════════════════════════════════════════════
-function syncWidgets() {
-  const s = state.settings;
-  $("#clockBox"  ).classList.toggle("hidden", !s.showClock);
-  $("#weatherBox").classList.toggle("hidden", !s.showWeather);
-  if (s.showWeather) fetchWeather();
-}
-function startClock() { updateClock(); setInterval(updateClock, 1000); }
-function updateClock() {
-  if (!state.settings.showClock) return;
-  const now = new Date();
-  const t = now.toLocaleTimeString("ko-KR",{ hour:"2-digit", minute:"2-digit" });
-  const d = now.toLocaleDateString("ko-KR",{ month:"long", day:"numeric", weekday:"short" });
-  $("#clockBox").textContent = `${t} · ${d}`;
-}
-async function fetchWeather(force=false) {
-  if (!state.settings.showWeather) return;
-  const box = $("#weatherBox");
-  const cache = state.weatherCache;
-  if (!force && cache && Date.now()-cache.time < 30*60*1000 && cache.temp !== undefined) {
-    box.textContent = `${cache.temp}° ${cache.icon} ${cache.text}`; return;
-  }
-  if (!navigator.geolocation) { box.textContent = "날씨 미지원"; return; }
-  box.textContent = "🌤 불러오는 중…";
-  navigator.geolocation.getCurrentPosition(async pos => {
-    try {
-      const { latitude:lat, longitude:lon } = pos.coords;
-      const r  = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`);
-      const d  = await r.json();
-      const wc = d.current.weather_code;
-      const w  = { time:Date.now(), temp:Math.round(d.current.temperature_2m), text:wcText(wc), icon:wcIcon(wc) };
-      state.weatherCache = w; save();
-      box.textContent = `${w.temp}° ${w.icon} ${w.text}`;
-    } catch { box.textContent = "날씨 실패"; }
-  }, () => { box.textContent = "위치 권한 필요"; }, { timeout:8000, maximumAge:600000 });
-}
-function wcIcon(c) {
-  if (c === 0) return "☀️"; if (c <= 3) return "⛅"; if (c <= 48) return "🌫";
-  if (c <= 67) return "🌧"; if (c <= 77) return "❄️"; if (c <= 82) return "🌦";
-  return "⛈";
-}
-function wcText(c) {
-  const m = { 0:"맑음",1:"대체로 맑음",2:"구름 조금",3:"흐림",45:"안개",48:"짙은 안개",
-    51:"이슬비",53:"이슬비",55:"강한 이슬비",61:"비",63:"비",65:"강한 비",
-    71:"눈",73:"눈",75:"강한 눈",77:"싸락눈",80:"소나기",81:"소나기",82:"강한 소나기",
-    85:"눈 소나기",86:"강한 눈 소나기",95:"뇌우",96:"뇌우/우박",99:"강한 뇌우" };
-  return m[c] || "날씨";
+/* ====== CLOCK ====== */
+function startClock(){updateClock();setInterval(updateClock,1000)}
+function updateClock(){
+  if(!S.cfg.showClock)return;
+  const d=new Date();
+  $("#clock").textContent=`${d.toLocaleTimeString("ko-KR",{hour:"2-digit",minute:"2-digit"})} · ${d.toLocaleDateString("ko-KR",{month:"long",day:"numeric",weekday:"short"})}`;
 }
 
-// ═══════════════════════════════════════════════════
-//  파일 → DataURL (리사이즈 포함)
-// ═══════════════════════════════════════════════════
-function toDataURL(file, maxW, maxH) {
-  return new Promise((ok, fail) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const ratio = Math.min(maxW/img.width, maxH/img.height, 1);
-        const w = Math.round(img.width * ratio), h = Math.round(img.height * ratio);
-        const c = Object.assign(document.createElement("canvas"), { width:w, height:h });
-        c.getContext("2d").drawImage(img, 0, 0, w, h);
-        const mime = /png|webp|svg/i.test(file.type) ? "image/png" : "image/jpeg";
-        ok(c.toDataURL(mime, .88));
-      };
-      img.onerror = fail; img.src = r.result;
-    };
-    r.onerror = fail; r.readAsDataURL(file);
+/* ====== WEATHER ====== */
+async function fetchWeather(force=false){
+  if(!S.cfg.showWeather)return;const b=$("#weather");
+  const c=S.wc;if(!force&&c&&Date.now()-c.t<18e5&&c.tmp!==undefined){b.textContent=`${c.tmp}° ${c.tx}`;return}
+  if(!navigator.geolocation){b.textContent="위치 미지원";return}
+  b.textContent="날씨 로드 중…";
+  navigator.geolocation.getCurrentPosition(async p=>{
+    try{
+      const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${p.coords.latitude}&longitude=${p.coords.longitude}&current=temperature_2m,weather_code&timezone=auto`);
+      const d=await r.json(),cur=d.current;
+      const w={t:Date.now(),tmp:Math.round(cur.temperature_2m),tx:wcTx(cur.weather_code)};
+      S.wc=w;save();b.textContent=`${w.tmp}° ${w.tx}`;
+    }catch{b.textContent="날씨 실패"}
+  },()=>{b.textContent="위치 권한 필요"},{enableHighAccuracy:false,timeout:8000,maximumAge:6e5});
+}
+function wcTx(c){return{0:"맑음",1:"대체로맑음",2:"구름조금",3:"흐림",45:"안개",48:"짙은안개",51:"이슬비",53:"이슬비",55:"강한이슬비",61:"비",63:"비",65:"폭우",71:"눈",73:"눈",75:"폭설",80:"소나기",81:"소나기",82:"강한소나기",95:"뇌우",96:"뇌우/우박",99:"강한뇌우"}[c]||"날씨"}
+
+/* ====== UTIL ====== */
+function holdBtn(btn,d){
+  let tm;const stop=()=>{clearInterval(tm);tm=null};
+  const go=e=>{e.preventDefault();stop();spin(d);tm=setInterval(()=>spin(d),110)};
+  btn.addEventListener("mousedown",go);btn.addEventListener("touchstart",go,{passive:false});
+  ["mouseup","mouseleave","touchend","touchcancel"].forEach(ev=>btn.addEventListener(ev,stop));
+  document.addEventListener("mouseup",stop);document.addEventListener("touchend",stop);
+}
+function swipe(el,cb,ignoreTile=false){
+  let sx,sy;
+  el.addEventListener("pointerdown",e=>{if(ignoreTile&&e.target.closest(".tile"))return;sx=e.clientX;sy=e.clientY});
+  el.addEventListener("pointerup",e=>{if(sx===null)return;const dx=e.clientX-sx;if(Math.abs(dx)>46&&Math.abs(dx)>Math.abs(e.clientY-sy))cb(dx<0?"left":"right");sx=null});
+  el.addEventListener("pointercancel",()=>sx=null);
+}
+async function shrink(file,mw,mh,png){
+  return new Promise((ok,ng)=>{
+    const rd=new FileReader();rd.onerror=ng;
+    rd.onload=()=>{const img=new Image();img.onerror=ng;img.onload=()=>{
+      const r=Math.min(mw/img.width,mh/img.height,1);const w=Math.round(img.width*r),h=Math.round(img.height*r);
+      const cv=document.createElement("canvas");cv.width=w;cv.height=h;cv.getContext("2d").drawImage(img,0,0,w,h);
+      ok(cv.toDataURL(png?"image/png":"image/jpeg",.86));
+    };img.src=rd.result};rd.readAsDataURL(file);
   });
 }
-
-// ═══════════════════════════════════════════════════
-//  토스트
-// ═══════════════════════════════════════════════════
-function toast(msg) {
-  const el = $("#toast");
-  el.textContent = msg; el.classList.add("show");
-  clearTimeout(toastTmr);
-  toastTmr = setTimeout(() => el.classList.remove("show"), 2400);
-}
+function toast(msg){const el=$("#toast");el.textContent=msg;el.classList.add("show");clearTimeout(toastTm);toastTm=setTimeout(()=>el.classList.remove("show"),2400)}
