@@ -2,278 +2,297 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-  />
-  <title>MagicHome</title>
-  <link
-    rel="icon"
-    href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="82">🪄</text></svg>'
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>MagicHome ✨</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 </head>
 <body>
+
+  <!-- 인트로 -->
   <div id="intro">
     <div id="introMessage" class="intro-message">반가워요. 오늘도 매직하게 시작해볼까요?</div>
     <div class="intro-brand">MAGICHOME</div>
+    <button id="introSkipBtn" type="button" class="intro-skip">건너뛰기</button>
   </div>
 
+  <!-- 배경 레이어 -->
   <div id="bgImageLayer"></div>
-  <div id="threeBg"></div>
+  <canvas id="threeBg"></canvas>
   <div id="vignette"></div>
 
+  <!-- 메인 셸 -->
   <div id="shell">
+
+    <!-- 상단바 -->
     <header class="topbar">
       <div class="infoDock">
-        <div id="clockBox" class="glass mini-pill"></div>
-        <div id="weatherBox" class="glass mini-pill hidden" title="클릭하면 새로고침"></div>
+        <div id="clockBox" class="mini-pill glass hidden"></div>
+        <div id="weatherBox" class="mini-pill glass hidden" title="클릭 시 새로고침"></div>
       </div>
 
       <div class="brandBadge glass">
-        <span class="brandEmoji">🪄✨</span>
+        <span>🪄✨</span>
         <span class="brandText">MAGICHOME</span>
       </div>
 
       <div class="topActions">
-        <button id="openAllBtn" class="glass action-btn" type="button" title="모음 열기">
-          <span class="icon">✨</span><span class="label">모음</span>
-        </button>
-        <button id="addNoteBtn" class="glass action-btn" type="button" title="메모 추가">
-          <span class="icon">📝</span><span class="label">메모</span>
-        </button>
-        <button id="addAppBtn" class="glass action-btn" type="button" title="앱 추가">
-          <span class="icon">＋</span><span class="label">앱</span>
-        </button>
-        <button id="settingsBtn" class="glass action-btn" type="button" title="설정">
-          <span class="icon">⚙</span><span class="label">설정</span>
-        </button>
+        <button id="openAllBtn"   class="act-btn glass" title="모음 열기">  <span>✨</span><em>모음</em></button>
+        <button id="addNoteBtn"   class="act-btn glass" title="메모 추가">  <span>📝</span><em>메모</em></button>
+        <button id="addAppBtn"    class="act-btn glass" title="앱 추가">    <span>＋</span><em>앱</em></button>
+        <button id="settingsBtn"  class="act-btn glass" title="설정">       <span>⚙</span><em>설정</em></button>
       </div>
     </header>
 
+    <!-- 검색 -->
     <main class="hero">
       <div class="searchWrap glass">
         <div class="searchLogo">🪄</div>
-
-        <select id="engineSelect" class="searchSelect" aria-label="검색 엔진 선택"></select>
-
-        <input
-          id="searchInput"
-          class="searchInput"
-          type="text"
-          placeholder="검색어 또는 URL 입력"
-          autocomplete="off"
-          spellcheck="false"
-        />
-
+        <div class="engineWrap">
+          <select id="engineSelect" class="sel" aria-label="검색 엔진"></select>
+        </div>
+        <input id="searchInput" class="searchInput" type="text"
+               placeholder="검색어 또는 URL 입력…" autocomplete="off" spellcheck="false" />
         <button id="searchBtn" class="searchBtn" type="button">검색</button>
       </div>
 
+      <!-- 커브 섹션 -->
       <section id="curveSection" class="appSection">
-        <button id="curveLeft" class="navBtn side left" type="button" aria-label="왼쪽으로 이동">‹</button>
-
-        <div id="curveViewport">
-          <div id="curveTrack"></div>
+        <button id="curveLeft"  class="sideBtn left"  type="button">‹</button>
+        <div    id="curveViewport">
+          <div  id="curveTrack"></div>
         </div>
-
-        <button id="curveRight" class="navBtn side right" type="button" aria-label="오른쪽으로 이동">›</button>
+        <button id="curveRight" class="sideBtn right" type="button">›</button>
       </section>
 
+      <!-- 그리드 섹션 -->
       <section id="gridSection" class="appSection hidden">
         <div class="gridHead">
-          <button id="gridLeft" class="navBtn" type="button" aria-label="이전 페이지">‹</button>
-          <div id="gridPageLabel" class="gridHint">1 / 1</div>
-          <button id="gridRight" class="navBtn" type="button" aria-label="다음 페이지">›</button>
+          <button id="gridLeft"  class="navBtn" type="button">‹</button>
+          <span   id="gridPageLabel" class="pageLabel">1 / 1</span>
+          <button id="gridRight" class="navBtn" type="button">›</button>
         </div>
-
         <div id="gridViewport">
           <div id="gridTrack"></div>
         </div>
       </section>
     </main>
 
+    <!-- 메모 레이어 -->
     <div id="notesLayer"></div>
   </div>
 
+  <!-- 백드롭 -->
   <div id="modalBackdrop" class="hidden"></div>
 
+  <!-- 설정 패널 -->
   <aside id="settingsPanel" class="panel hidden">
     <div class="panelHeader">
-      <h2>설정</h2>
-      <button type="button" class="closeBtn" data-close>✕</button>
+      <h2>⚙ 설정</h2>
+      <button class="closeBtn" data-close type="button">✕</button>
     </div>
-
     <div class="panelBody">
-      <label class="field">
-        <span>레이아웃</span>
-        <select id="layoutSelect">
-          <option value="curve">커브 앱 다이얼</option>
-          <option value="grid">일반 앱 배열</option>
-        </select>
-      </label>
 
-      <label class="field">
-        <span>검색 엔진</span>
-        <select id="settingsEngineSelect"></select>
-      </label>
+      <div class="section-title">화면 레이아웃</div>
+      <div class="field">
+        <label class="field-label">앱 배열 방식</label>
+        <div class="sel-wrap">
+          <select id="layoutSelect" class="sel">
+            <option value="curve">🎡 커브 다이얼</option>
+            <option value="grid">⊞ 일반 그리드</option>
+          </select>
+        </div>
+      </div>
 
-      <label class="field">
-        <span>처음 문구</span>
-        <input id="welcomeInput" type="text" maxlength="80" placeholder="처음 표시될 문구" />
-      </label>
+      <div class="section-title">검색</div>
+      <div class="field">
+        <label class="field-label">기본 검색 엔진</label>
+        <div class="sel-wrap">
+          <select id="settingsEngineSelect" class="sel"></select>
+        </div>
+      </div>
 
-      <div class="switchGroup">
-        <label class="checkRow">
-          <input id="showClockToggle" type="checkbox" />
-          <span>시간 표시</span>
-        </label>
-
-        <label class="checkRow">
-          <input id="showWeatherToggle" type="checkbox" />
-          <span>날씨 표시</span>
+      <div class="section-title">시작 문구</div>
+      <div class="field">
+        <label class="field-label">처음 표시 문구</label>
+        <input id="welcomeInput" class="inp" type="text" maxlength="80" placeholder="처음 화면에 표시될 문구" />
+      </div>
+      <div class="field row-field">
+        <label class="field-label">인트로 로딩 표시</label>
+        <label class="toggle-label">
+          <input id="showIntroToggle" type="checkbox" class="toggle-inp" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
         </label>
       </div>
 
-      <div class="divider"></div>
-
-      <label class="field">
-        <span>배경 타입</span>
-        <select id="bgTypeSelect">
-          <option value="three">기본 Three.js 배경</option>
-          <option value="image">이미지 배경</option>
-        </select>
-      </label>
-
-      <label class="field">
-        <span>배경 이미지 링크</span>
-        <input id="bgImageUrl" type="text" placeholder="https://..." />
-      </label>
-
-      <label class="field">
-        <span>배경 이미지 업로드</span>
-        <input id="bgImageUpload" type="file" accept="image/*" />
-      </label>
-
-      <label class="field">
-        <span>이미지 표시 방식</span>
-        <select id="bgFitSelect">
-          <option value="cover">자르기(cover)</option>
-          <option value="contain">맞추기(contain)</option>
-          <option value="stretch">늘리기(stretch)</option>
-        </select>
-      </label>
-
-      <div class="panelButtons">
-        <button id="applyBgBtn" type="button" class="primaryBtn">배경 적용</button>
-        <button id="resetDataBtn" type="button" class="dangerBtn">전체 초기화</button>
+      <div class="section-title">위젯</div>
+      <div class="field row-field">
+        <label class="field-label">🕐 시간 표시</label>
+        <label class="toggle-label">
+          <input id="showClockToggle" type="checkbox" class="toggle-inp" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="field row-field">
+        <label class="field-label">🌤 날씨 표시</label>
+        <label class="toggle-label">
+          <input id="showWeatherToggle" type="checkbox" class="toggle-inp" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
       </div>
 
-      <p class="muted">
-        업로드 이미지는 브라우저에 저장됩니다. 너무 큰 이미지는 저장 한도 때문에 실패할 수 있어요.
-      </p>
+      <div class="section-title">배경</div>
+      <div class="field">
+        <label class="field-label">배경 타입</label>
+        <div class="sel-wrap">
+          <select id="bgTypeSelect" class="sel">
+            <option value="three">✨ Three.js 배경</option>
+            <option value="image">🖼 이미지 배경</option>
+          </select>
+        </div>
+      </div>
+      <div class="field row-field">
+        <label class="field-label">마우스 Three.js 반응</label>
+        <label class="toggle-label">
+          <input id="threeMouseToggle" type="checkbox" class="toggle-inp" />
+          <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="field-label">이미지 링크</label>
+        <input id="bgImageUrl" class="inp" type="text" placeholder="https://..." />
+      </div>
+      <div class="field">
+        <label class="field-label">이미지 업로드</label>
+        <label class="file-label">
+          <input id="bgImageUpload" type="file" accept="image/*" class="file-inp" />
+          <span class="file-btn">📂 파일 선택</span>
+          <span id="bgFileName" class="file-name">선택된 파일 없음</span>
+        </label>
+      </div>
+      <div class="field">
+        <label class="field-label">이미지 표시 방식</label>
+        <div class="sel-wrap">
+          <select id="bgFitSelect" class="sel">
+            <option value="cover">✂ 자르기 (cover)</option>
+            <option value="contain">⬜ 맞추기 (contain)</option>
+            <option value="stretch">↔ 늘리기 (stretch)</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="applyBgBtn"   class="primary-btn" type="button">배경 적용</button>
+        <button id="resetDataBtn" class="danger-btn"  type="button">전체 초기화</button>
+      </div>
+
+      <p class="hint-text">업로드 이미지는 브라우저 로컬 저장소에 저장됩니다. 용량이 크면 저장에 실패할 수 있어요.</p>
     </div>
   </aside>
 
+  <!-- 앱 추가/수정 모달 -->
   <div id="appModal" class="modal hidden">
     <div class="modalCard">
       <div class="panelHeader">
-        <h3 id="appModalTitle">앱 / 폴더 추가</h3>
-        <button type="button" class="closeBtn" data-close>✕</button>
+        <h3 id="appModalTitle">앱 추가</h3>
+        <button class="closeBtn" data-close type="button">✕</button>
       </div>
-
       <form id="appForm" class="panelBody">
-        <label class="field">
-          <span>유형</span>
-          <select id="entryType">
-            <option value="app">앱</option>
-            <option value="folder">폴더</option>
-          </select>
-        </label>
 
-        <label class="field">
-          <span>이름</span>
-          <input id="appName" type="text" maxlength="24" required />
-        </label>
+        <div class="field">
+          <label class="field-label">유형</label>
+          <div class="seg-ctrl" id="entryTypeSeg">
+            <button type="button" data-val="app"    class="seg-btn active">📱 앱</button>
+            <button type="button" data-val="folder" class="seg-btn">📁 폴더</button>
+          </div>
+          <input type="hidden" id="entryType" value="app" />
+        </div>
 
         <div id="appOnlyFields">
-          <label class="field">
-            <span>저장 위치</span>
-            <select id="parentSelect"></select>
-          </label>
-
-          <label class="field">
-            <span>URL / 프로토콜</span>
-            <input
-              id="appUrl"
-              type="text"
-              placeholder="https://..., vscode://..., steam://..."
-            />
-          </label>
-
-          <label class="field">
-            <span>아이콘 방식</span>
-            <select id="iconModeSelect">
-              <option value="auto">사이트 로고 자동 불러오기</option>
-              <option value="link">이미지 링크 사용</option>
-              <option value="upload">이미지 업로드</option>
-            </select>
-          </label>
-
-          <label class="field">
-            <span>아이콘 이미지 링크</span>
-            <input id="appIconUrl" type="text" placeholder="https://..." />
-          </label>
-
-          <label class="field">
-            <span>아이콘 이미지 업로드</span>
-            <input id="appIconUpload" type="file" accept="image/*" />
-          </label>
-
-          <label class="checkRow">
-            <input id="launchGroupToggle" type="checkbox" />
-            <span>상단 “모음” 버튼에 포함</span>
-          </label>
+          <div class="field">
+            <label class="field-label">이름 *</label>
+            <input id="appName" class="inp" type="text" maxlength="24" required placeholder="앱 이름" />
+          </div>
+          <div class="field">
+            <label class="field-label">저장 위치</label>
+            <div class="sel-wrap">
+              <select id="parentSelect" class="sel"></select>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label">URL / 프로토콜 *</label>
+            <input id="appUrl" class="inp" type="text" placeholder="https://... 또는 vscode://" />
+          </div>
+          <div class="field">
+            <label class="field-label">아이콘 방식</label>
+            <div class="seg-ctrl" id="iconModeSeg">
+              <button type="button" data-val="auto"   class="seg-btn active">🌐 자동</button>
+              <button type="button" data-val="link"   class="seg-btn">🔗 링크</button>
+              <button type="button" data-val="upload" class="seg-btn">📤 업로드</button>
+            </div>
+            <input type="hidden" id="iconModeVal" value="auto" />
+          </div>
+          <div class="field" id="iconLinkField" style="display:none">
+            <label class="field-label">아이콘 링크</label>
+            <input id="appIconUrl" class="inp" type="text" placeholder="https://..." />
+          </div>
+          <div class="field" id="iconUploadField" style="display:none">
+            <label class="field-label">아이콘 업로드</label>
+            <label class="file-label">
+              <input id="appIconUpload" type="file" accept="image/*" class="file-inp" />
+              <span class="file-btn">📂 파일 선택</span>
+              <span id="iconFileName" class="file-name">선택된 파일 없음</span>
+            </label>
+          </div>
+          <div class="field row-field">
+            <label class="field-label">✨ 모음에 포함</label>
+            <label class="toggle-label">
+              <input id="launchGroupToggle" type="checkbox" class="toggle-inp" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            </label>
+          </div>
         </div>
 
         <div id="folderOnlyFields" class="hidden">
-          <label class="field">
-            <span>폴더 이모지</span>
-            <input id="folderEmoji" type="text" maxlength="4" placeholder="🪄" />
-          </label>
+          <div class="field">
+            <label class="field-label">이름 *</label>
+            <input id="folderName" class="inp" type="text" maxlength="24" placeholder="폴더 이름" />
+          </div>
+          <div class="field">
+            <label class="field-label">폴더 이모지</label>
+            <input id="folderEmoji" class="inp emoji-inp" type="text" maxlength="4" placeholder="🪄" />
+          </div>
         </div>
 
-        <div class="panelButtons">
-          <button type="submit" class="primaryBtn">저장</button>
-          <button type="button" data-close>취소</button>
+        <div class="btn-row">
+          <button type="submit" class="primary-btn">저장</button>
+          <button type="button" class="ghost-btn" data-close>취소</button>
         </div>
-
-        <p class="muted">
-          로컬 프로그램/파일 직접 실행은 브라우저 보안상 제한됩니다. 대신
-          <strong>vscode://, steam://</strong> 같은 프로토콜은 연결 가능할 수 있어요.
-        </p>
+        <p class="hint-text">로컬 프로그램 실행은 vscode://, steam:// 등 프로토콜 링크로 연결 가능합니다.</p>
       </form>
     </div>
   </div>
 
+  <!-- 폴더 모달 -->
   <div id="folderModal" class="modal hidden">
     <div class="modalCard folderCard">
       <div class="panelHeader">
         <h3 id="folderTitle">폴더</h3>
-        <div class="folderTools">
-          <button id="folderOpenAllBtn" type="button" class="primaryBtn smallBtn">전체 열기</button>
-          <button id="folderAddAppBtn" type="button" class="smallBtn">앱 추가</button>
-          <button type="button" class="closeBtn" data-close>✕</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="folderOpenAllBtn" class="primary-btn small-btn" type="button">전체 열기</button>
+          <button id="folderAddAppBtn"  class="ghost-btn  small-btn" type="button">앱 추가</button>
+          <button class="closeBtn" data-close type="button">✕</button>
         </div>
       </div>
-
       <div id="folderApps" class="folderApps"></div>
     </div>
   </div>
 
+  <!-- 퀵 메뉴 -->
   <div id="quickMenu" class="quickMenu hidden"></div>
+
+  <!-- 토스트 -->
   <div id="toast"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
