@@ -1,10 +1,9 @@
 /* ======================================================================
-   MagicHome - app.js (메모 핀 영구 보존 및 고난도 Three.js 리액션 버전)
+   MagicHome - app.js (메모 시스템 전면 개편 빌드)
    ====================================================================== */
 
-const SYSTEM_KEY = "magichome_v4_state";
+const SYSTEM_KEY = "magichome_v5_state";
 
-// ── 검색 엔진 주소 구축 ──────────────────────────────────────
 const ENGINES = {
   google:  { label: "🔍 Google",  q: q => `https://www.google.com/search?q=${enc(q)}` },
   naver:   { label: "🟢 Naver",   q: q => `https://search.naver.com/search.naver?query=${enc(q)}` },
@@ -17,7 +16,6 @@ const enc = encodeURIComponent;
 const MAGIC_SVG_FAVICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="82">🪄</text></svg>`;
 const MAGIC_ICON = `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(MAGIC_SVG_FAVICON)}`;
 
-// ── DOM 캐치 유틸 ─────────────────────────────────
 const $ = (s, p = document) => p.querySelector(s);
 const $$ = (s, p = document) => [...p.querySelectorAll(s)];
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
@@ -26,7 +24,6 @@ function uid(prefix = "id") {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-// ── 메모리 상태 변수군 ────────────────────────────────
 let state = loadState();
 let threeCtx = null;
 let dragInfo = null;
@@ -37,7 +34,6 @@ let pointerX = null, pointerY = null;
 let toastTimer = null;
 let clockInterval = null;
 
-// ── 디폴트 데이터 주입 ───────────────────────────────
 function buildDefaultItems() {
   return [
     appItem("Google", "https://www.google.com", false),
@@ -69,11 +65,9 @@ function buildDefaultState() {
       showWeather: false,
       showIntro: true,
       welcomeMsg: "반가워요. 오늘도 매직하게 시작해볼까요?",
-      autoPinNotes: false, // 메모 생성 시 핀 자동 비활성화(디폴트)
-      // 탭 데코레이션
+      autoPinNotes: false,
       faviconType: "emoji",
       faviconData: "",
-      // 테마 배경 데이터
       bgType: "three",
       threeSceneType: "stars",
       threeMouseFx: true,
@@ -86,7 +80,7 @@ function buildDefaultState() {
       bgEmojis: "✨🎈🪄🍀🌸🔥",
     },
     items: buildDefaultItems(),
-    notes: [], // 핀 고정 처리된 메모는 캐시를 통해 이곳에 로드됨
+    notes: [],
     carouselIdx: 0,
     gridPage: 0,
     weatherCache: null,
@@ -103,11 +97,25 @@ function loadState() {
       ...fb, ...s,
       settings: { ...fb.settings, ...(s.settings || {}) },
       items: normalizeDataItems(s.items || fb.items),
-      notes: Array.isArray(s.notes) ? s.notes : [],
+      notes: Array.isArray(s.notes) ? normalizeNotes(s.notes) : [],
     };
   } catch {
     return fb;
   }
+}
+
+function normalizeNotes(arr) {
+  return arr.map(n => ({
+    id: n.id || uid("note"),
+    text: n.text || "",
+    pinned: !!n.pinned,
+    minimized: !!n.minimized,
+    x: typeof n.x === "number" ? n.x : 80,
+    y: typeof n.y === "number" ? n.y : 120,
+    w: typeof n.w === "number" ? n.w : 240,
+    h: typeof n.h === "number" ? n.h : 200,
+    color: n.color || "#ffe78d",
+  }));
 }
 
 function normalizeDataItems(arr) {
@@ -125,30 +133,23 @@ function normalizeDataItems(arr) {
   });
 }
 
-// ── 캐시 라이트 (요청에 부합하도록 오직 Pinned 메모만 선별 저장) ──
 function saveState() {
   try {
-    // 핀이 꽂혀있는 메모만 로컬 스토리지에 포함시킴
+    // 핀이 꽂힌 메모만 영구 캐시
     const savedNotes = state.notes.filter(n => n.pinned === true);
-    const dumpData = {
-      ...state,
-      notes: savedNotes
-    };
+    const dumpData = { ...state, notes: savedNotes };
     localStorage.setItem(SYSTEM_KEY, JSON.stringify(dumpData));
   } catch {
     toast("로컬 스토리지 한계 도달 - 미디어 파일 최적화가 요구됩니다.");
   }
 }
 
-// ═══════════════════════════════════════════════════
-//  시스템 시동
-// ═══════════════════════════════════════════════════
 document.addEventListener("DOMContentLoaded", () => {
   setEngineLists();
   bindMainEvents();
   syncAllStateToUI();
   renderAllComponents();
-  initThreeBackground(); // 고성능 물리입자 시각 피드백 로드
+  initThreeBackground();
   startSystemClock();
   applyBackgroundTheme();
   applyFaviconTheme();
@@ -204,9 +205,6 @@ function setSegmentActive(groupId, hiddenId, val) {
   $(`#${hiddenId}`).value = val;
 }
 
-// ═══════════════════════════════════════════════════
-//  이벤트 라우터 바인더
-// ═══════════════════════════════════════════════════
 function bindMainEvents() {
   $("#introSkipBtn").addEventListener("click", triggerIntroHide);
 
@@ -340,7 +338,6 @@ function bindMainEvents() {
   $("#folderOpenAllBtn").addEventListener("click", () => triggerFolderLaunchAll(folderOpenId));
   $("#folderAddAppBtn").addEventListener("click", () => openAppInputModal(null, folderOpenId));
 
-  // 마우스 이동 감지
   $("#curveViewport").addEventListener("mousemove", e => {
     const rect = $("#curveViewport").getBoundingClientRect();
     pointerX = e.clientX - rect.left;
@@ -407,9 +404,6 @@ function toggleSubBgFields(type) {
   else if (type === "emoji") $("#bgEmojiOptions").classList.remove("hidden");
 }
 
-// ═══════════════════════════════════════════════════
-//  배경 테마 제어 엔진
-// ═══════════════════════════════════════════════════
 function applyBackgroundTheme() {
   const s = state.settings;
   const solid = $("#bgSolidLayer");
@@ -463,14 +457,9 @@ function destroyEmojiBackground() {
 function applyFaviconTheme() {
   const f = state.settings.faviconData || MAGIC_ICON;
   const link = $("#favicon");
-  if (link) {
-    link.setAttribute("href", f);
-  }
+  if (link) link.setAttribute("href", f);
 }
 
-// ═══════════════════════════════════════════════════
-//  UI 상태 연동 및 리스너 분기
-// ═══════════════════════════════════════════════════
 function syncAllStateToUI() {
   const s = state.settings;
   $("#layoutSelect").value = s.layout;
@@ -520,9 +509,6 @@ function renderAllComponents() {
   if (folderOpenId) renderFolderPopup();
 }
 
-// ═══════════════════════════════════════════════════
-//  💎 초고난도 Three.js 비주얼 수식 연산 제어 💎
-// ═══════════════════════════════════════════════════
 function initThreeBackground() {
   if (typeof THREE === "undefined") return;
   const canvas = $("#threeBg");
@@ -543,7 +529,6 @@ function initThreeBackground() {
   let targetX = 0, targetY = 0;
   let mouseX = 0, mouseY = 0;
 
-  // 정밀 광원 및 카메라 타겟 센싱 구축
   document.addEventListener("mousemove", e => {
     mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
     mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
@@ -558,16 +543,13 @@ function initThreeBackground() {
     const delta = clock.getDelta();
     const time = clock.getElapsedTime();
 
-    // ── 비주얼 모드별 고난도 기하 연산 루프 ──
     if (threeCtx.sceneType === "stars") {
-      // 🌌 성운 소용돌이 기하 루프
       threeCtx.meshObj.rotation.z += 0.05 * delta;
       
       const positions = threeCtx.meshObj.geometry.attributes.position.array;
       const count = positions.length / 3;
       for (let i = 0; i < count; i++) {
         const i3 = i * 3;
-        // 마우스 중력 영향도 계산
         if (state.settings.threeMouseFx) {
           const dx = positions[i3] - mouseX * 80;
           const dy = positions[i3 + 1] - (-mouseY * 50);
@@ -581,7 +563,6 @@ function initThreeBackground() {
       threeCtx.meshObj.geometry.attributes.position.needsUpdate = true;
 
     } else if (threeCtx.sceneType === "matrix") {
-      // 🧬 매트릭스 큐브 레인 기하 파장 루프
       const children = threeCtx.meshObj.children;
       children.forEach((mesh, index) => {
         mesh.position.y -= (0.15 + (index % 5) * 0.05);
@@ -590,7 +571,6 @@ function initThreeBackground() {
           mesh.position.y = 120;
           mesh.position.x = (Math.random() - 0.5) * 260;
         }
-        // 마우스 호버 왜곡 작용
         if (state.settings.threeMouseFx) {
           const dx = mesh.position.x - mouseX * 100;
           const dy = mesh.position.y - (-mouseY * 80);
@@ -604,7 +584,6 @@ function initThreeBackground() {
       });
 
     } else if (threeCtx.sceneType === "waves") {
-      // 🌊 마우스 압력 분산 디지털 지형 서핑 루프
       const positions = threeCtx.meshObj.geometry.attributes.position.array;
       const count = positions.length / 3;
       for (let i = 0; i < count; i++) {
@@ -612,17 +591,15 @@ function initThreeBackground() {
         const x = positions[i3];
         const z = positions[i3 + 2];
         
-        // 삼각 정밀 합성 웨이브 수식
         let y = Math.sin(x * 0.08 + time * 1.5) * Math.cos(z * 0.08 + time * 1.5) * 6;
-        y += Math.sin(x * 0.2 + time * 3.0) * 1.2; // 디테일 고주파 파도
+        y += Math.sin(x * 0.2 + time * 3.0) * 1.2;
 
-        // 마우스 포인트 중심 하강 압력파 계산
         if (state.settings.threeMouseFx) {
           const mx = mouseX * 130;
           const mz = -mouseY * 100;
           const dist = Math.hypot(x - mx, z - mz);
           if (dist < 45) {
-            y -= (45 - dist) * 0.45; // 밀려 내려가는 왜곡 형성
+            y -= (45 - dist) * 0.45;
           }
         }
         positions[i3 + 1] = y;
@@ -630,7 +607,6 @@ function initThreeBackground() {
       threeCtx.meshObj.geometry.attributes.position.needsUpdate = true;
     }
 
-    // 마우스 타겟 렌더러 반응 관성 작용
     if (state.settings.threeMouseFx) {
       targetX += (mouseX - targetX) * 0.04;
       targetY += (mouseY - targetY) * 0.04;
@@ -654,20 +630,16 @@ function resetThreeScene() {
 
   if (threeCtx.meshObj) scene.remove(threeCtx.meshObj);
 
-  // 대분류 분기
   if (type === "stars") {
-    // 🌌 성운 수식 빌드
     const starCount = 1400;
     const geom = new THREE.BufferGeometry();
     const pos = new Float32Array(starCount * 3);
     const colors = new Float32Array(starCount * 3);
 
-    const c1 = new THREE.Color("#d0bcff"); // 퍼플
-    const c2 = new THREE.Color("#4f378b"); // 인디고
-    const c3 = new THREE.Color("#0c0a10"); // 다크
+    const c1 = new THREE.Color("#d0bcff");
+    const c2 = new THREE.Color("#4f378b");
 
     for (let i = 0; i < starCount; i++) {
-      // 나선 은하 수학 모델 공식 적용
       const r = Math.pow(Math.random(), 2.5) * 160;
       const spin = r * 0.05;
       const angle = (i % 3) * ((2 * Math.PI) / 3) + spin;
@@ -676,7 +648,6 @@ function resetThreeScene() {
       pos[i * 3 + 1] = Math.sin(angle) * r + (Math.random() - 0.5) * 12;
       pos[i * 3 + 2] = (Math.random() - 0.5) * 40;
 
-      // 은하 중심부에 수렴할수록 밝은 퍼플, 변두리는 다크 인디고 처리
       const mixedColor = c1.clone().lerp(c2, r / 160);
       colors[i * 3] = mixedColor.r;
       colors[i * 3 + 1] = mixedColor.g;
@@ -697,7 +668,6 @@ function resetThreeScene() {
     threeCtx.meshObj = new THREE.Points(geom, mat);
 
   } else if (type === "matrix") {
-    // 🧬 사이버 와이어 구조체 그리드
     const parentGroup = new THREE.Group();
     const gridCount = 90;
     
@@ -717,7 +687,6 @@ function resetThreeScene() {
     threeCtx.meshObj = parentGroup;
 
   } else if (type === "waves") {
-    // 🌊 디지털 3D 터레인 파도 생성
     const gridX = 75, gridZ = 75;
     const geom = new THREE.BufferGeometry();
     const count = gridX * gridZ;
@@ -730,15 +699,13 @@ function resetThreeScene() {
     let idx = 0;
     for (let x = 0; x < gridX; x++) {
       for (let z = 0; z < gridZ; z++) {
-        // 정렬 정점 계산
         const px = (x - gridX / 2) * 4.2;
         const pz = (z - gridZ / 2) * 4.2;
 
         pos[idx * 3] = px;
-        pos[idx * 3 + 1] = 0; // 프레임 루프에서 연산
+        pos[idx * 3 + 1] = 0;
         pos[idx * 3 + 2] = pz;
 
-        // 투톤 파동 그래디언트
         const mixed = c1.clone().lerp(c2, x / gridX);
         colors[idx * 3] = mixed.r;
         colors[idx * 3 + 1] = mixed.g;
@@ -773,9 +740,6 @@ function resizeThreeCanvas() {
   camera.updateProjectionMatrix();
 }
 
-// ═══════════════════════════════════════════════════
-//  [A] 커브 다이얼 레이아웃 재배치
-// ═══════════════════════════════════════════════════
 function renderCurveLayout() {
   const track = $("#curveTrack");
   track.innerHTML = "";
@@ -823,7 +787,6 @@ function triggerDialReposition() {
   tiles.forEach((tile, index) => {
     const off = getCircularDistanceOffset(index, state.carouselIdx, total);
     
-    // 직선 나열이되, 변두리로 갈 수록 살짝 아래 방향으로 자연스럽게 하강하는 수식
     const x = centerX + off * spacing;
     const y = baseY + Math.pow(Math.abs(off), 1.62) * 16.5; 
     
@@ -850,9 +813,6 @@ function rotateCurveDial(dir) {
   triggerDialReposition();
 }
 
-// ═══════════════════════════════════════════════════
-//  [B] 일반 앱 격자 슬라이더 레이아웃
-// ═══════════════════════════════════════════════════
 function renderGridPageLayout() {
   const track = $("#gridTrack");
   track.innerHTML = "";
@@ -887,9 +847,6 @@ function changeGridPage(dir) {
   renderGridPageLayout();
 }
 
-// ═══════════════════════════════════════════════════
-//  안드로이드 컴포넌트 렌더러
-// ═══════════════════════════════════════════════════
 function buildTileComponent(item, parentId = "", mode = "grid") {
   const tile = document.createElement("div");
   tile.className = `app-tile ${mode === "curve" ? "curve-tile" : "list-tile"}`;
@@ -991,6 +948,15 @@ function getAppIconSrc(item) {
   }
 }
 
+function normalizeAppUrl(url) {
+  const s = (url || "").trim();
+  if (!s) return "";
+  if (/^(javascript|data):/i.test(s)) return "";
+  if (/^[a-zA-Z][\w+\-.]*:/.test(s)) return s;
+  if (s.startsWith("//")) return `https:${s}`;
+  return `https://${s}`;
+}
+
 function routeAppTarget(url) {
   const target = normalizeAppUrl(url);
   if (!target) {
@@ -1061,9 +1027,6 @@ function executePopupLaunchAll(urls) {
   });
 }
 
-// ═══════════════════════════════════════════════════
-//  컨텍스트 메뉴 제어
-// ═══════════════════════════════════════════════════
 function triggerQuickMenu(itemId, x, y) {
   const find = findSystemItem(itemId);
   if (!find) return;
@@ -1155,9 +1118,6 @@ function syncBackdropState() {
   requestAnimationFrame(() => $("#modalBackdrop").classList.toggle("show", visible));
 }
 
-// ═══════════════════════════════════════════════════
-//  어플리케이션 모달 구조 세팅
-// ═══════════════════════════════════════════════════
 function openAppInputModal(itemId = null, parentHint = "") {
   curEditId = itemId;
   const find = itemId ? findSystemItem(itemId) : null;
@@ -1339,9 +1299,6 @@ function deleteSelectedElement(id) {
   }
 }
 
-// ═══════════════════════════════════════════════════
-//  안드로이드 드래그 앤 리오더 물리 피드백 런처
-// ═══════════════════════════════════════════════════
 function attachAndroidDrag(tile, itemId) {
   tile.addEventListener("pointerdown", e => {
     if (e.button && e.button !== 0) return;
@@ -1515,26 +1472,41 @@ function execMergeToNewFolder(aId, bId) {
 }
 
 // ═══════════════════════════════════════════════════
-//  📌 포스트잇 메모 (고정식 선별 캐시 기능 탑재) 📌
+//  📝 메모 시스템 (완전 재구성)
 // ═══════════════════════════════════════════════════
 function makeNewStickyNote() {
   const palette = ["#ffe78d", "#ffd4ea", "#d6ffb3", "#cae8ff", "#f0d2ff"];
   const n = state.notes.length;
-  
-  // 설정에서 자동 고정(autoPinNotes)이 활성화되어 있으면 true, 기본값은 false(비활성)
   const isPinned = !!state.settings.autoPinNotes;
 
-  state.notes.push({
+  const newNote = {
     id: uid("note"),
     text: "새 메모",
-    pinned: isPinned, 
-    x: clamp(40 + (n * 24) % 240, 14, window.innerWidth - 230),
-    y: clamp(120 + (n * 18) % 180, 90, window.innerHeight - 220),
+    pinned: isPinned,
+    minimized: false,
+    x: clamp(40 + (n * 28) % 280, 14, window.innerWidth - 260),
+    y: clamp(120 + (n * 22) % 220, 90, window.innerHeight - 240),
+    w: 240,
+    h: 200,
     color: palette[n % palette.length],
-  });
+  };
+
+  state.notes.push(newNote);
   saveState();
   renderNotes();
-  if (isPinned) toast("메모가 핀으로 고정되어 자동 세이브됩니다.");
+  
+  if (isPinned) {
+    toast("📌 메모가 핀 고정되어 영구 저장됩니다.");
+  } else {
+    toast("📝 메모 생성 - 핀을 눌러 영구 저장하세요.");
+  }
+}
+
+function extractNoteTitle(text) {
+  if (!text || !text.trim()) return "(빈 메모)";
+  const firstLine = text.split("\n")[0].trim();
+  if (!firstLine) return "(빈 메모)";
+  return firstLine.length > 30 ? firstLine.slice(0, 30) + "…" : firstLine;
 }
 
 function renderNotes() {
@@ -1542,93 +1514,210 @@ function renderNotes() {
   layer.innerHTML = "";
   
   state.notes.forEach(note => {
-    const el = document.createElement("div");
-    el.className = "note";
-    if (note.pinned) el.classList.add("pinned-state");
-    
-    el.style.left = `${note.x}px`;
-    el.style.top = `${note.y}px`;
-    el.style.background = note.color;
-
-    const bar = document.createElement("div");
-    bar.className = "note-bar";
-    bar.innerHTML = `<span>✏️</span>`;
-
-    const ctrls = document.createElement("div");
-    ctrls.className = "note-controls";
-
-    // 동적 핀 고정 토글 버튼 생성
-    const pinBtn = document.createElement("button");
-    pinBtn.type = "button";
-    pinBtn.className = `note-pin-btn ${note.pinned ? 'active' : ''}`;
-    pinBtn.innerHTML = note.pinned ? "📌" : "📍";
-    pinBtn.title = note.pinned ? "고정 해제 (리로드 시 소멸)" : "핀 고정 세이브 (영구 저장)";
-    
-    pinBtn.addEventListener("click", () => {
-      note.pinned = !note.pinned;
-      pinBtn.className = `note-pin-btn ${note.pinned ? 'active' : ''}`;
-      pinBtn.innerHTML = note.pinned ? "📌" : "📍";
-      pinBtn.title = note.pinned ? "고정 해제 (리로드 시 소멸)" : "핀 고정 세이브 (영구 저장)";
-      
-      if (note.pinned) {
-        el.classList.add("pinned-state");
-        toast("메모가 핀 고정되어 영구 캐시에 등록되었습니다.");
-      } else {
-        el.classList.remove("pinned-state");
-        toast("핀 고정이 풀려 새로고침 시 이 메모는 소멸됩니다.");
-      }
-      saveState();
-    });
-
-    const del = document.createElement("button");
-    del.type = "button"; 
-    del.textContent = "✕";
-    del.title = "삭제";
-    del.addEventListener("click", () => {
-      state.notes = state.notes.filter(n => n.id !== note.id);
-      saveState();
-      renderNotes();
-    });
-
-    ctrls.append(pinBtn, del);
-    bar.appendChild(ctrls);
-
-    const body = document.createElement("div");
-    body.className = "note-body";
-    body.contentEditable = "true";
-    body.spellcheck = false;
-    body.innerText = note.text || "";
-    body.addEventListener("input", () => {
-      note.text = body.innerText;
-      saveState();
-    });
-
-    bar.addEventListener("pointerdown", e => {
-      if (e.target.closest("button")) return;
-      const r = el.getBoundingClientRect();
-      const ox = e.clientX - r.left, oy = e.clientY - r.top;
-      const move = ev => {
-        note.x = clamp(ev.clientX - ox, 8, window.innerWidth - r.width - 8);
-        note.y = clamp(ev.clientY - oy, 8, window.innerHeight - r.height - 8);
-        el.style.left = `${note.x}px`;
-        el.style.top = `${note.y}px`;
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        saveState();
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up, { once: true });
-    });
-
-    el.append(bar, body);
+    const el = buildNoteElement(note);
     layer.appendChild(el);
   });
 }
 
-// ═══════════════════════════════════════════════════
-//  시간 및 기상관측
-// ═══════════════════════════════════════════════════
+function buildNoteElement(note) {
+  const el = document.createElement("div");
+  el.className = "note";
+  if (note.pinned) el.classList.add("pinned-state");
+  if (note.minimized) el.classList.add("minimized");
+  
+  el.style.left = `${note.x}px`;
+  el.style.top = `${note.y}px`;
+  el.style.width = `${note.w}px`;
+  if (!note.minimized) el.style.height = `${note.h}px`;
+  el.style.background = note.color;
+  el.dataset.noteId = note.id;
+
+  // ── 상단 바 (드래그 + 제목 + 컨트롤) ──
+  const bar = document.createElement("div");
+  bar.className = "note-bar";
+
+  const titleSpan = document.createElement("span");
+  titleSpan.className = "note-title";
+  titleSpan.textContent = extractNoteTitle(note.text);
+
+  const ctrls = document.createElement("div");
+  ctrls.className = "note-controls";
+
+  // 핀 버튼
+  const pinBtn = document.createElement("button");
+  pinBtn.type = "button";
+  pinBtn.className = "note-btn note-pin-btn";
+  if (note.pinned) pinBtn.classList.add("active");
+  pinBtn.innerHTML = note.pinned ? "📌" : "📍";
+  pinBtn.title = note.pinned ? "고정 해제 (새로고침 시 사라짐)" : "핀 고정 (영구 저장)";
+
+  // 최소화 버튼
+  const minBtn = document.createElement("button");
+  minBtn.type = "button";
+  minBtn.className = "note-btn note-min-btn";
+  minBtn.innerHTML = note.minimized ? "▢" : "▬";
+  minBtn.title = note.minimized ? "펼치기" : "최소화";
+
+  // 삭제 버튼
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "note-btn";
+  delBtn.innerHTML = "✕";
+  delBtn.title = "삭제";
+
+  ctrls.append(pinBtn, minBtn, delBtn);
+  bar.append(titleSpan, ctrls);
+
+  // ── 본문 ──
+  const body = document.createElement("div");
+  body.className = "note-body";
+  body.contentEditable = "true";
+  body.spellcheck = false;
+  body.innerText = note.text || "";
+
+  // ── 리사이즈 핸들 ──
+  const resizer = document.createElement("div");
+  resizer.className = "note-resizer";
+  resizer.title = "크기 조절";
+
+  el.append(bar, body, resizer);
+
+  // ═══════════════════════════════════════
+  //  📌 핀 버튼 이벤트 (pointerdown 단계에서 차단)
+  // ═══════════════════════════════════════
+  pinBtn.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  pinBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    note.pinned = !note.pinned;
+    pinBtn.classList.toggle("active", note.pinned);
+    pinBtn.innerHTML = note.pinned ? "📌" : "📍";
+    pinBtn.title = note.pinned ? "고정 해제 (새로고침 시 사라짐)" : "핀 고정 (영구 저장)";
+    el.classList.toggle("pinned-state", note.pinned);
+    saveState();
+    toast(note.pinned ? "📌 핀 고정 - 영구 저장됨" : "📍 핀 해제 - 새로고침 시 사라짐");
+  });
+
+  // ═══════════════════════════════════════
+  //  ▬ 최소화 버튼 이벤트
+  // ═══════════════════════════════════════
+  minBtn.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  minBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    note.minimized = !note.minimized;
+    el.classList.toggle("minimized", note.minimized);
+    minBtn.innerHTML = note.minimized ? "▢" : "▬";
+    minBtn.title = note.minimized ? "펼치기" : "최소화";
+    if (!note.minimized) {
+      el.style.height = `${note.h}px`;
+    } else {
+      el.style.height = "";
+    }
+    saveState();
+  });
+
+  // ═══════════════════════════════════════
+  //  ✕ 삭제 버튼 이벤트
+  // ═══════════════════════════════════════
+  delBtn.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+  });
+  delBtn.addEventListener("click", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    state.notes = state.notes.filter(n => n.id !== note.id);
+    saveState();
+    renderNotes();
+  });
+
+  // ═══════════════════════════════════════
+  //  본문 편집 이벤트
+  // ═══════════════════════════════════════
+  body.addEventListener("input", () => {
+    note.text = body.innerText;
+    titleSpan.textContent = extractNoteTitle(note.text);
+    saveState();
+  });
+  body.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+  });
+
+  // ═══════════════════════════════════════
+  //  상단 바 드래그 (제목 영역에서만 작동)
+  // ═══════════════════════════════════════
+  bar.addEventListener("pointerdown", e => {
+    // 버튼 클릭은 위에서 stopPropagation 처리됨
+    if (e.target.closest(".note-btn")) return;
+    
+    e.preventDefault();
+    const startMouseX = e.clientX;
+    const startMouseY = e.clientY;
+    const startNoteX = note.x;
+    const startNoteY = note.y;
+
+    const onMove = ev => {
+      const dx = ev.clientX - startMouseX;
+      const dy = ev.clientY - startMouseY;
+      const w = el.offsetWidth;
+      const h = el.offsetHeight;
+      note.x = clamp(startNoteX + dx, 8, window.innerWidth - w - 8);
+      note.y = clamp(startNoteY + dy, 8, window.innerHeight - h - 8);
+      el.style.left = `${note.x}px`;
+      el.style.top = `${note.y}px`;
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      saveState();
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+
+  // ═══════════════════════════════════════
+  //  ◢ 리사이즈 핸들 이벤트
+  // ═══════════════════════════════════════
+  resizer.addEventListener("pointerdown", e => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const startMouseX = e.clientX;
+    const startMouseY = e.clientY;
+    const startW = note.w;
+    const startH = note.h;
+
+    const onMove = ev => {
+      const dw = ev.clientX - startMouseX;
+      const dh = ev.clientY - startMouseY;
+      note.w = clamp(startW + dw, 180, window.innerWidth - note.x - 20);
+      note.h = clamp(startH + dh, 100, window.innerHeight - note.y - 20);
+      el.style.width = `${note.w}px`;
+      el.style.height = `${note.h}px`;
+    };
+
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      saveState();
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+
+  return el;
+}
+
 function startSystemClock() {
   clearInterval(clockInterval);
   updateWidgetClock();
