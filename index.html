@@ -6,26 +6,22 @@
   <title>MagicHome</title>
   <link id="favicon" rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="82">🪄</text></svg>' />
   <link rel="stylesheet" href="style.css" />
-  <!-- Three.js 안전하게 고속 로드 -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
 </head>
 <body>
 
-  <!-- 인트로 화면 -->
   <div id="intro">
     <div id="introMessage" class="intro-message">반가워요. 오늘도 매직하게 시작해볼까요?</div>
     <div class="intro-brand">MAGICHOME</div>
     <button id="introSkipBtn" type="button" class="intro-skip">건너뛰기</button>
   </div>
 
-  <!-- 다중 백그라운드 테마 레이어 -->
   <div id="bgSolidLayer"></div>
   <div id="bgEmojiLayer"></div>
   <div id="bgImageLayer"></div>
   <canvas id="threeBg"></canvas>
   <div id="vignette"></div>
 
-  <!-- 메인 구동 셸 -->
   <div id="shell">
     <header class="topbar">
       <div class="infoDock">
@@ -55,7 +51,6 @@
     </header>
 
     <main class="hero">
-      <!-- 구글 스타일 알약 검색 위젯 -->
       <div class="searchWrap glass">
         <div class="searchLogo">🪄</div>
         <div class="engineWrap">
@@ -65,7 +60,6 @@
         <button id="searchBtn" class="searchBtn" type="button">검색</button>
       </div>
 
-      <!-- [A] 커브 다이얼 레이아웃 -->
       <section id="curveSection" class="appSection">
         <button id="curveLeft" class="sideBtn left" type="button">‹</button>
         <div id="curveViewport">
@@ -74,7 +68,6 @@
         <button id="curveRight" class="sideBtn right" type="button">›</button>
       </section>
 
-      <!-- [B] 그리드 + 슬라이더 레이아웃 -->
       <section id="gridSection" class="appSection hidden">
         <div class="gridHead">
           <button id="gridLeft" class="navBtn" type="button">‹</button>
@@ -87,13 +80,11 @@
       </section>
     </main>
 
-    <!-- 메모장 레이어 -->
     <div id="notesLayer"></div>
   </div>
 
   <div id="modalBackdrop" class="hidden"></div>
 
-  <!-- 설정 패널 (사이드 드로워) -->
   <aside id="settingsPanel" class="panel hidden">
     <div class="panelHeader">
       <h2>⚙️ 설정</h2>
@@ -101,7 +92,6 @@
     </div>
     <div class="panelBody">
 
-      <!-- 개인화 -->
       <div class="section-title">개인화 및 레이아웃</div>
       <div class="field">
         <label class="field-label">앱 배열 레이아웃</label>
@@ -130,7 +120,6 @@
         </label>
       </div>
 
-      <!-- 위젯 및 메모 고급 제어 -->
       <div class="section-title">위젯 및 메모 제어</div>
       <div class="field row-field">
         <label class="field-label">🕐 시간/날짜 표시</label>
@@ -154,7 +143,6 @@
         </label>
       </div>
 
-      <!-- 탭 아이콘 설정 -->
       <div class="section-title">브라우저 탭 아이콘 (Favicon)</div>
       <div class="field">
         <label class="field-label">아이콘 소스 방식</label>
@@ -181,7 +169,6 @@
         <button id="applyFavBtn" class="primary-btn" type="button">탭 아이콘 적용</button>
       </div>
 
-      <!-- 고도화 테마 엔진 -->
       <div class="section-title">배경 테마 엔진</div>
       <div class="field">
         <label class="field-label">배경 대분류 선택</label>
@@ -196,7 +183,6 @@
         </div>
       </div>
 
-      <!-- 하위 설정 분기 UI -->
       <div id="bgThreeOptions" class="bgSubFields">
         <div class="field">
           <label class="field-label">3D 비주얼 아트 모드</label>
@@ -278,7 +264,6 @@
     </div>
   </aside>
 
-  <!-- 앱 정보 수정/등록 모달 -->
   <div id="appModal" class="modal hidden">
     <div class="modalCard">
       <div class="panelHeader">
@@ -333,7 +318,7 @@
             </label>
           </div>
           <div class="field row-field">
-            <label class="field-label">✨ 상단 “모음” 자동 실행 그룹에 편입</label>
+            <label class="field-label">✨ 상단 "모음" 자동 실행 그룹에 편입</label>
             <label class="toggle-label">
               <input id="launchGroupToggle" type="checkbox" class="toggle-inp" />
               <span class="toggle-track"><span class="toggle-thumb"></span></span>
@@ -360,7 +345,6 @@
     </div>
   </div>
 
-  <!-- 안드로이드 폴더 드로워 모달 -->
   <div id="folderModal" class="modal hidden">
     <div class="modalCard folderCard">
       <div class="panelHeader">
